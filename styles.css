@@ -1,0 +1,1497 @@
+/* 
+  DOM 塔防卡 - 全局样式
+  - 主要控制布局、战场视觉、卡牌样式以及覆盖层
+*/
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #0b1020;
+  color: #f5f5f5;
+}
+
+body {
+  overflow: hidden; /* 禁止水平/垂直滚动，游戏完全在视口中 */
+}
+
+#game-root {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  position: relative;
+  color: #f5f5f5;
+}
+
+#game-layout {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+#game-field-wrapper {
+  flex: 3;
+  padding: 12px 12px 4px 12px;
+}
+
+#game-field {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 220px;
+  border-radius: 12px;
+  overflow: hidden;
+  background-image: linear-gradient(135deg, #141b3f, #1b254d);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 18px 40px rgba(0, 0, 0, 0.7);
+}
+
+/* 地圖主題樣式 */
+.map-theme-default {
+  background-image: linear-gradient(135deg, #141b3f, #1b254d);
+}
+
+.map-theme-cross {
+  background-image: linear-gradient(135deg, #1a1a2e, #16213e),
+    linear-gradient(45deg, rgba(255, 255, 255, 0.03) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.03) 25%, transparent 25%);
+  background-size: 100% 100%, 40px 40px, 40px 40px;
+}
+
+.map-theme-dark {
+  background-image: linear-gradient(135deg, #0a0e27, #1a0d2e);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 18px 40px rgba(0, 0, 0, 0.9),
+    inset 0 0 60px rgba(100, 0, 150, 0.1);
+}
+
+/* 细网格背景 */
+#game-field::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(
+      rgba(255, 255, 255, 0.02) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.02) 1px,
+      transparent 1px
+    );
+  background-size: 32px 32px;
+  pointer-events: none;
+}
+
+/* 基地 */
+#base {
+  position: absolute;
+  left: 50%;
+  bottom: 10%;
+  transform: translateX(-50%);
+  width: 90px;
+  height: 90px;
+  border-radius: 18px;
+  background: radial-gradient(circle at 30% 30%, #fffd, #ff9800);
+  box-shadow: 0 0 25px rgba(255, 193, 7, 0.85), 0 0 0 3px rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: #1a1200;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.4);
+  z-index: 10;
+}
+
+/* 障礙物 */
+.obstacle {
+  position: absolute;
+  background: linear-gradient(135deg, rgba(100, 100, 120, 0.85), rgba(60, 60, 80, 0.9));
+  border: 2px solid rgba(150, 150, 170, 0.6);
+  border-radius: 4px;
+  box-shadow: 
+    inset 0 2px 4px rgba(0, 0, 0, 0.3),
+    0 2px 8px rgba(0, 0, 0, 0.5);
+  pointer-events: none; /* 不阻擋鼠標事件，但會阻擋敵人移動（通過尋路算法） */
+  z-index: 5; /* 在背景之上，但在基地和塔之下 */
+  transition: filter 0.4s ease, box-shadow 0.4s ease, opacity 0.4s ease;
+}
+
+/* 障碍物高亮（布置阶段） */
+.obstacle--highlight {
+  filter: brightness(1.3) saturate(1.2);
+  box-shadow: 
+    inset 0 2px 4px rgba(0, 0, 0, 0.3),
+    0 2px 8px rgba(0, 0, 0, 0.5),
+    0 0 12px rgba(255, 235, 59, 0.4);
+  border-color: rgba(255, 235, 59, 0.5);
+}
+
+/* 路径预览容器 */
+.path-preview-container {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.path-preview-container--visible {
+  opacity: 1;
+}
+
+.path-preview-container--fading {
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+/* 路径预览线 */
+.path-preview-line {
+  position: absolute;
+  inset: 0;
+}
+
+.path-preview-segment {
+  position: absolute;
+  height: 2px;
+  background: linear-gradient(90deg, 
+    rgba(105, 240, 174, 0.4) 0%,
+    rgba(105, 240, 174, 0.6) 50%,
+    rgba(105, 240, 174, 0.4) 100%
+  );
+  box-shadow: 0 0 8px rgba(105, 240, 174, 0.5);
+  border-radius: 1px;
+  transform-origin: 0 50%;
+}
+
+/* UI 面板 */
+#ui-panel {
+  flex: 1.1;
+  padding: 4px 12px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 状态栏：使用flex布局分为三个块 */
+.status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.02));
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.status-block {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-block--left {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.status-block--center {
+  flex: 1 1 auto;
+  justify-content: center;
+  min-width: 0;
+}
+
+.status-block--right {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+/* 兼容旧类名 */
+#top-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.02));
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.stat-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 14px;
+}
+
+.stat-label {
+  opacity: 0.85;
+}
+
+.stat-value {
+  font-weight: 600;
+}
+
+/* 战局进度核心信息区域 */
+.battle-progress {
+  text-align: center;
+}
+
+.battle-progress-main {
+  margin-bottom: 4px;
+}
+
+.battle-level {
+  font-size: 15px;
+  font-weight: 700;
+  color: #ffca28;
+  text-shadow: 0 0 8px rgba(255, 202, 40, 0.5);
+  letter-spacing: 0.5px;
+}
+
+.battle-progress-details {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.battle-detail-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.battle-wave,
+.battle-enemies {
+  font-weight: 600;
+  color: #69f0ae;
+}
+
+.battle-detail-separator {
+  opacity: 0.4;
+  margin: 0 2px;
+}
+
+/* 最高波数徽章 */
+.stat-item--best {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.best-wave-label {
+  font-size: 10px;
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-right: 4px;
+}
+
+.best-wave-value {
+  font-weight: 700;
+  font-size: 13px;
+  color: #ffca28;
+}
+
+/* 控制按钮组 */
+.stat-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-control {
+  padding: 4px 10px;
+  font-size: 13px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(135deg, #3949ab, #5c6bc0);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+  white-space: nowrap;
+}
+
+.btn-control:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.6);
+  background: linear-gradient(135deg, #5c6bc0, #7986cb);
+}
+
+.btn-control:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.btn-control--menu {
+  background: linear-gradient(135deg, #d32f2f, #f44336);
+}
+
+.btn-control--menu:hover {
+  background: linear-gradient(135deg, #f44336, #ef5350);
+}
+
+.energy-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 12px;
+  color: #69f0ae;
+  text-shadow: 0 0 4px rgba(105, 240, 174, 0.8);
+  filter: drop-shadow(0 0 2px rgba(105, 240, 174, 0.6));
+}
+
+.bar-container {
+  width: 140px;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.bar-fill {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, #ff5252, #ffca28);
+  transform-origin: left center;
+  transform: scaleX(1);
+  transition: transform 0.2s ease-out;
+}
+
+.bar-fill.energy {
+  background: linear-gradient(90deg, #40c4ff, #69f0ae);
+}
+
+#btn-pause {
+  padding: 4px 10px;
+  font-size: 13px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(135deg, #3949ab, #5c6bc0);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+#btn-pause:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.6);
+  background: linear-gradient(135deg, #5c6bc0, #7986cb);
+}
+
+#btn-pause:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* 速度切換按鈕，樣式與暫停類似但偏藍綠，用於提示當前節奏 */
+#btn-speed {
+  padding: 4px 10px;
+  font-size: 13px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(135deg, #00695c, #26a69a);
+  color: #e0f2f1;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+#btn-speed:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.6);
+  background: linear-gradient(135deg, #00897b, #4db6ac);
+}
+
+#btn-speed:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* 返回主菜单按钮，样式与暂停按钮类似但偏红橙 */
+#btn-back-to-menu {
+  padding: 4px 10px;
+  font-size: 13px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(135deg, #d32f2f, #f44336);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+#btn-back-to-menu:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.6);
+  background: linear-gradient(135deg, #f44336, #ef5350);
+}
+
+#btn-back-to-menu:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* 手牌区 */
+#hand-panel {
+  flex: 1;
+  padding: 6px 10px 10px 10px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(18, 27, 60, 0.95), rgba(9, 12, 30, 0.98));
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#hand-panel h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+#hand-cards {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  /* 允许内部卡牌区域出现轻微横向滚动，而不让整个页面出现滚动条 */
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.card {
+  position: relative;
+  width: 110px;
+  min-height: 72px;
+  padding: 6px 7px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: radial-gradient(circle at 0 0, rgba(255, 255, 255, 0.12), transparent 60%),
+    linear-gradient(150deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.7));
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.7);
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+}
+
+.card:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.85);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.card.selected,
+.card--selected {
+  border-color: #ffca28;
+  border-width: 2px;
+  box-shadow: 0 0 0 2px rgba(255, 235, 59, 0.6), 0 0 20px rgba(255, 235, 59, 0.8);
+  transform: scale(1.03);
+  background: radial-gradient(circle at 0 0, rgba(255, 235, 59, 0.15), transparent 60%),
+    linear-gradient(150deg, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0.7));
+}
+
+.card.selected:hover,
+.card--selected:hover {
+  transform: scale(1.05) translateY(-2px);
+  box-shadow: 0 0 0 2px rgba(255, 235, 59, 0.8), 0 0 24px rgba(255, 235, 59, 0.9);
+}
+
+/* 能量不足時的卡牌狀態：半透明 + 灰度，並弱化 hover 提示玩家當前不可用 */
+.card.card-disabled,
+.card--disabled {
+  opacity: 0.45;
+  filter: grayscale(0.55);
+  cursor: not-allowed;
+}
+
+.card.card-disabled:hover,
+.card--disabled:hover {
+  transform: translateY(0) scale(1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.7);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* 禁用状态下，费用图标和文字变半透明 */
+.card--disabled .card-cost {
+  opacity: 0.5;
+}
+
+.card--disabled .cost-icon,
+.card--disabled .cost-value {
+  opacity: 0.4;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  position: relative;
+  min-height: 16px;
+}
+
+.card-name {
+  flex: 1;
+  font-size: 11px;
+}
+
+.card-type {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.card-type.tower {
+  background: rgba(33, 150, 243, 0.25);
+  color: #81d4fa;
+}
+
+.card-type.layout {
+  background: rgba(76, 175, 80, 0.22);
+  color: #a5d6a7;
+}
+
+.card-type.style {
+  background: rgba(255, 193, 7, 0.25);
+  color: #ffe082;
+}
+
+.card-cost {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.cost-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 10px;
+  color: #ffeb3b;
+  text-shadow: 0 0 4px rgba(255, 235, 59, 0.8);
+  filter: drop-shadow(0 0 2px rgba(255, 235, 59, 0.6));
+}
+
+.cost-value {
+  color: #ffeb3b;
+  font-weight: 600;
+}
+
+.card-cost.cost-insufficient {
+  opacity: 0.5;
+}
+
+.card-cost.cost-insufficient .cost-icon {
+  filter: grayscale(0.8) brightness(0.6);
+}
+
+.card-stats {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.75);
+  margin-top: 3px;
+  letter-spacing: 0.3px;
+}
+
+.card-tags {
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 3px;
+  padding-top: 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.card-badge-buff {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 8px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #4caf50, #66bb6a);
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 2px 4px rgba(76, 175, 80, 0.4);
+  z-index: 1;
+}
+
+.card-insufficient {
+  animation: card-insufficient 0.35s ease;
+}
+
+@keyframes card-insufficient {
+  0% {
+    transform: translateX(0);
+    border-color: rgba(244, 67, 54, 0.4);
+  }
+  25% {
+    transform: translateX(-3px);
+  }
+  50% {
+    transform: translateX(3px);
+  }
+  75% {
+    transform: translateX(-2px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+/* 能量不足提示条 */
+.energy-insufficient-tip {
+  position: absolute;
+  top: -35px;
+  left: 50%;
+  transform: translate(-50%, 0);
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: rgba(244, 67, 54, 0.9);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(244, 67, 54, 0.5);
+}
+
+.energy-insufficient-tip--visible {
+  opacity: 1;
+  transform: translate(-50%, -5px);
+}
+
+/* 卡牌 tooltip，显示详细描述 */
+.card::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translate(-50%, -6px);
+  white-space: pre-line;
+  max-width: 200px;
+  background: rgba(5, 10, 30, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #e3f2fd;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.9);
+  z-index: 50;
+  text-align: left;
+}
+
+.card:hover::after {
+  opacity: 1;
+  transform: translate(-50%, -10px);
+}
+
+/* 覆盖层（开始 / 胜利 / 失败） */
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 20% 0, rgba(76, 175, 80, 0.08), transparent 55%),
+    radial-gradient(circle at 80% 100%, rgba(33, 150, 243, 0.08), transparent 55%),
+    rgba(3, 7, 18, 0.94);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.overlay.hidden {
+  display: none;
+}
+
+.overlay-content {
+  max-width: 520px;
+  padding: 28px 32px 24px 32px;
+  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(17, 24, 39, 0.96), rgba(7, 11, 26, 0.98));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.85);
+  text-align: center;
+}
+
+.overlay-content h1,
+.overlay-content h2 {
+  margin: 0 0 8px 0;
+}
+
+.overlay-content p {
+  margin: 4px 0;
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.rule-list {
+  text-align: left;
+  margin: 12px 0 16px 0;
+  padding-left: 18px;
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.overlay-content button {
+  margin-top: 12px;
+  padding: 8px 20px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, #ffca28, #ff9800);
+  color: #1a1300;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.8);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+.overlay-content button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.9);
+  background: linear-gradient(135deg, #ffe082, #ffb300);
+}
+
+.overlay-content button:active {
+  transform: translateY(0);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.8);
+}
+
+/* 關卡選擇區域 */
+.level-select {
+  margin: 12px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.level-btn {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e3f2fd;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s ease;
+}
+
+.level-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.35);
+  transform: translateY(-1px);
+}
+
+.level-btn.selected {
+  background: linear-gradient(135deg, #2196f3, #1976d2);
+  border-color: #2196f3;
+  box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4);
+}
+
+/* 失敗界面多按鈕佈局 */
+#defeat-screen .overlay-content button,
+#level-complete-screen .overlay-content button {
+  margin: 6px;
+  display: inline-block;
+}
+
+/* 波次與狀態浮動提示 */
+.wave-toast {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translate(-50%, -12px);
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  background: rgba(7, 26, 56, 0.92);
+  color: #e3f2fd;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.8);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+  z-index: 90;
+}
+
+.wave-toast.visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.wave-toast[data-type="start"] {
+  background: rgba(21, 101, 192, 0.95);
+}
+
+.wave-toast[data-type="clear"] {
+  background: rgba(67, 160, 71, 0.95);
+}
+
+/* 塔样式 */
+.tower {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  z-index: 5;
+}
+
+.tower:hover {
+  transform: translate(-50%, -50%) scale(1.06);
+}
+
+.tower-div {
+  background: linear-gradient(145deg, #42a5f5, #1e88e5);
+  box-shadow: 0 8px 18px rgba(33, 150, 243, 0.8);
+}
+
+.tower-button {
+  background: linear-gradient(145deg, #ab47bc, #8e24aa);
+  box-shadow: 0 8px 18px rgba(156, 39, 176, 0.85);
+}
+
+.tower-img {
+  background: linear-gradient(145deg, #26a69a, #00897b);
+  box-shadow: 0 8px 18px rgba(38, 166, 154, 0.85);
+}
+
+/* 样式卡产生的视觉效果 */
+.tower-style-rotate {
+  animation: tower-rotate 3s linear infinite;
+}
+
+@keyframes tower-rotate {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+.tower-style-shadow {
+  box-shadow: 0 0 22px rgba(255, 255, 255, 0.85), 0 0 0 2px rgba(255, 255, 255, 0.3);
+}
+
+/* 敌人样式 */
+.enemy {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  font-size: 11px;
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.8);
+  z-index: 4;
+}
+
+.enemy::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: -4px;
+  height: 3px;
+  border-radius: 99px;
+  background: rgba(0, 0, 0, 0.9);
+  filter: blur(3px);
+  opacity: 0.7;
+  z-index: -1;
+}
+
+.enemy-ad {
+  background: linear-gradient(135deg, #ff4081, #f50057);
+}
+
+.enemy-banner {
+  background: linear-gradient(135deg, #ffb74d, #fb8c00);
+  min-width: 76px;
+}
+
+.enemy-script {
+  background: linear-gradient(135deg, #66bb6a, #43a047);
+}
+
+/* 新敌人类型样式 */
+.enemy-normal {
+  background: linear-gradient(135deg, #78909c, #546e7a);
+}
+
+.enemy-sprinter {
+  background: linear-gradient(135deg, #ab47bc, #8e24aa);
+  transition: filter 0.3s ease, box-shadow 0.3s ease;
+}
+
+.enemy-sprinter.enemy-sprinting {
+  filter: brightness(1.4);
+  box-shadow: 0 0 20px rgba(171, 71, 188, 0.8), 0 8px 18px rgba(0, 0, 0, 0.8);
+  animation: sprinter-trail 0.15s ease-out infinite;
+}
+
+@keyframes sprinter-trail {
+  0%, 100% {
+    filter: brightness(1.4) blur(0px);
+  }
+  50% {
+    filter: brightness(1.6) blur(2px);
+  }
+}
+
+.enemy-devourer {
+  background: linear-gradient(135deg, #d32f2f, #b71c1c);
+  transition: transform 0.3s ease;
+}
+
+.enemy-devourer.enemy-devouring {
+  animation: devour-pulse 0.3s ease-out;
+}
+
+@keyframes devour-pulse {
+  0% {
+    transform: translate(-50%, -50%) scale(var(--scale, 1));
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(calc(var(--scale, 1) * 1.15));
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(var(--scale, 1));
+  }
+}
+
+.enemy-smart {
+  background: linear-gradient(135deg, #1976d2, #1565c0);
+}
+
+.enemy-healer {
+  background: linear-gradient(135deg, #388e3c, #2e7d32);
+  position: relative;
+}
+
+.enemy-healer::before {
+  content: "+";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 18px;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+  pointer-events: none;
+}
+
+.enemy-healer.enemy-healing {
+  animation: heal-pulse 0.5s ease-out;
+  box-shadow: 0 0 25px rgba(56, 142, 60, 0.7), 0 8px 18px rgba(0, 0, 0, 0.8);
+}
+
+@keyframes heal-pulse {
+  0% {
+    box-shadow: 0 0 15px rgba(56, 142, 60, 0.5), 0 8px 18px rgba(0, 0, 0, 0.8);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(56, 142, 60, 0.9), 0 0 40px rgba(56, 142, 60, 0.6), 0 8px 18px rgba(0, 0, 0, 0.8);
+  }
+  100% {
+    box-shadow: 0 0 15px rgba(56, 142, 60, 0.5), 0 8px 18px rgba(0, 0, 0, 0.8);
+  }
+}
+
+/* 治疗型敌人的治疗范围指示器（可选，用于调试） */
+.enemy-healer-type::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 160px;
+  height: 160px;
+  border: 1px dashed rgba(56, 142, 60, 0.3);
+  border-radius: 999px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.enemy-healer-type:hover::after {
+  opacity: 1;
+}
+
+.enemy-hp-bar {
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+}
+
+.enemy-hp-fill {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, #8bc34a, #cddc39);
+  transform-origin: left center;
+  transition: transform 0.18s ease-out;
+}
+
+/* 敵人被擊中時的閃爍效果 */
+.enemy-hit {
+  animation: enemy-hit 0.18s ease-out;
+}
+
+@keyframes enemy-hit {
+  0% {
+    filter: brightness(1);
+    opacity: 1;
+  }
+  50% {
+    filter: brightness(1.5);
+    opacity: 0.7;
+  }
+  100% {
+    filter: brightness(1);
+    opacity: 1;
+  }
+}
+
+/* 塔放置预览 */
+.tower-preview {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 2px dashed rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  z-index: 20;
+}
+
+/* 塔攻擊範圍高亮圈 */
+.tower-range-indicator {
+  position: absolute;
+  border-radius: 999px;
+  border: 1px dashed rgba(129, 212, 250, 0.9);
+  background: radial-gradient(circle, rgba(33, 150, 243, 0.16), transparent 70%);
+  transform: translate(-50%, -50%) scale(0.9);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease-out, transform 0.16s ease-out;
+  z-index: 3;
+}
+
+.tower-range-indicator.visible {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+/* 塔攻擊瞬間的輕微縮放 */
+.tower-attacking {
+  animation: tower-attack 0.18s ease-out;
+}
+
+@keyframes tower-attack {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+/* 塔子彈：從塔飛向敵人的簡單光點 */
+.tower-bullet {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: radial-gradient(circle, #fffde7, #ffca28);
+  box-shadow: 0 0 12px rgba(255, 235, 59, 0.9);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: left 0.18s linear, top 0.18s linear, opacity 0.18s ease-out;
+  z-index: 6;
+}
+
+/* 布局卡效果：这里主要以视觉为主，逻辑 buff 在 JS 中处理 */
+.field-layout-flex {
+  outline: 2px solid rgba(76, 175, 80, 0.8);
+  box-shadow: 0 0 0 1px rgba(129, 199, 132, 0.8), 0 0 26px rgba(129, 199, 132, 0.8);
+}
+
+.field-layout-grid {
+  outline: 2px solid rgba(3, 169, 244, 0.8);
+  box-shadow: 0 0 0 1px rgba(129, 212, 250, 0.9), 0 0 28px rgba(129, 212, 250, 0.9);
+}
+
+/* 关卡开始气泡 */
+.bubble {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 90;
+  pointer-events: none;
+}
+
+.bubble.hidden {
+  display: none;
+}
+
+.bubble-content {
+  background: linear-gradient(145deg, rgba(17, 24, 39, 0.98), rgba(7, 11, 26, 0.98));
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 16px;
+  padding: 24px 28px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9);
+  text-align: center;
+  max-width: 400px;
+  pointer-events: auto;
+  animation: bubble-appear 0.3s ease-out;
+}
+
+@keyframes bubble-appear {
+  0% {
+    opacity: 0;
+    transform: scale(0.95) translateY(-10px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.bubble.bubble--closing .bubble-content {
+  animation: bubble-disappear 0.3s ease-in forwards;
+}
+
+@keyframes bubble-disappear {
+  0% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.95) translateY(-10px);
+  }
+}
+
+.bubble-content h2 {
+  margin: 0 0 12px 0;
+  font-size: 18px;
+  color: #ffca28;
+  font-weight: 700;
+}
+
+.bubble-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 6px 0;
+  font-size: 12px;
+}
+
+.bubble-label {
+  opacity: 0.75;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.bubble-stars {
+  color: #ffca28;
+  font-size: 14px;
+  letter-spacing: 2px;
+  text-shadow: 0 0 6px rgba(255, 202, 40, 0.6);
+}
+
+.bubble-prep-time-value {
+  color: #69f0ae;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.enemy-type-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  margin: 0 2px;
+}
+
+.enemy-type-badge.enemy-type-ad {
+  background: rgba(255, 64, 129, 0.25);
+  color: #ff4081;
+}
+
+.enemy-type-badge.enemy-type-banner {
+  background: rgba(255, 183, 77, 0.25);
+  color: #ffb74d;
+}
+
+.enemy-type-badge.enemy-type-script {
+  background: rgba(102, 187, 106, 0.25);
+  color: #66bb6a;
+}
+
+.bubble-content p {
+  margin: 10px 0;
+  font-size: 13px;
+  opacity: 0.9;
+  line-height: 1.5;
+}
+
+.bubble-recommended {
+  margin: 8px 0 4px 0;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  font-style: italic;
+  opacity: 0.8;
+  line-height: 1.4;
+}
+
+#btn-close-bubble {
+  margin-top: 12px;
+  padding: 8px 20px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  background: linear-gradient(135deg, #ffca28, #ff9800);
+  color: #1a1300;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.8);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease, opacity 0.2s ease;
+}
+
+#btn-close-bubble:hover:not(.btn-disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.9);
+  background: linear-gradient(135deg, #ffe082, #ffb300);
+}
+
+#btn-close-bubble:active:not(.btn-disabled) {
+  transform: translateY(0);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.8);
+}
+
+#btn-close-bubble.btn-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: linear-gradient(135deg, #757575, #616161);
+}
+
+/* 响应式：窄屏时 UI 面板高度增加，卡牌自动换行 */
+@media (max-width: 768px) {
+  #game-layout {
+    max-width: 100%;
+  }
+
+  #game-field-wrapper {
+    flex: 2.5;
+  }
+
+  #ui-panel {
+    flex: 1.4;
+  }
+
+  #top-stats {
+    justify-content: space-between;
+  }
+
+  .bar-container {
+    width: 110px;
+  }
+}
+
+/* ========================================
+   调试模式样式
+   ======================================== */
+
+/* 调试按钮 */
+#btn-debug {
+  padding: 6px 12px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  color: #f5f5f5;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+#btn-debug:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+#btn-debug.debug-active {
+  background: rgba(255, 193, 7, 0.2);
+  border-color: rgba(255, 193, 7, 0.5);
+  color: #ffc107;
+}
+
+/* 格子标记 */
+.debug-grid-marker {
+  position: absolute;
+  border: 2px solid;
+  pointer-events: none;
+  opacity: 0.4;
+  z-index: 1;
+}
+
+.debug-grid-marker-obstacle {
+  background: rgba(255, 0, 0, 0.2);
+  border-color: rgba(255, 0, 0, 0.6);
+}
+
+.debug-grid-marker-tower {
+  background: rgba(33, 150, 243, 0.2);
+  border-color: rgba(33, 150, 243, 0.6);
+}
+
+.debug-grid-marker-base {
+  background: rgba(255, 193, 7, 0.2);
+  border-color: rgba(255, 193, 7, 0.8);
+}
+
+.debug-grid-marker-spawn {
+  background: rgba(76, 175, 80, 0.2);
+  border-color: rgba(76, 175, 80, 0.6);
+}
+
+.debug-grid-marker-enemy {
+  background: rgba(156, 39, 176, 0.2);
+  border-color: rgba(156, 39, 176, 0.8);
+  border-width: 1px;
+}
+
+/* 敌人碰撞高亮 */
+.enemy.debug-collision-highlight {
+  box-shadow: 0 0 20px rgba(255, 0, 0, 1), 0 0 40px rgba(255, 0, 0, 0.8);
+  animation: debug-collision-pulse 0.5s ease-in-out infinite;
+  border: 2px solid #f44336;
+}
+
+@keyframes debug-collision-pulse {
+  0%, 100% {
+    filter: brightness(1.5);
+  }
+  50% {
+    filter: brightness(2);
+  }
+}
+
+/* 塔放置预览标记 */
+.debug-tower-preview-marker {
+  border: 3px solid;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 25;
+}
+
+.debug-tower-preview-valid {
+  background: rgba(76, 175, 80, 0.3);
+  border-color: rgba(76, 175, 80, 0.8);
+  box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+}
+
+.debug-tower-preview-invalid {
+  background: rgba(244, 67, 54, 0.3);
+  border-color: rgba(244, 67, 54, 0.8);
+  box-shadow: 0 0 10px rgba(244, 67, 54, 0.5);
+}
+
+.debug-tower-preview-hint {
+  color: #f44336;
+  font-size: 12px;
+  font-weight: bold;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
+  z-index: 26;
+  pointer-events: none;
+}
+
+/* 路径线条样式已在SVG中通过属性设置，这里可以添加额外样式 */
+#debug-path-container {
+  mix-blend-mode: screen;
+}
+
+#debug-tower-placement-path {
+  mix-blend-mode: screen;
+}
+
