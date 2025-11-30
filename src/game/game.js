@@ -31,7 +31,6 @@ import {
   MAX_ENERGY,
   ENERGY_REGEN_PER_SECOND,
   LEVELS,
-  AUTO_BACK_TO_MENU_MS,
 } from "./config.js";
 import { getInitialHand } from "./cards.js";
 import {
@@ -127,7 +126,18 @@ import {
  * @property {string | null} activeBossId 當前場上 Boss 的 ID
  * @property {number | null} pauseStartTime 暫停開始的時間戳（毫秒），null 表示未暫停或已恢復
  * @property {Array} bullets 當前所有存活的子彈
- * @property {Array<{x:number,y:number,width:number,height:number,source?:string}> | null} activeObstacles 本關實際生效的障礙佈局
+ * @property {{
+ *   width:number,
+ *   height:number,
+ *   tileSize:number,
+ *   gridObstacles:Array<{x:number,y:number,w:number,h:number,source?:string}>,
+ *   blockedGrid:boolean[][],
+ *   spawnGrids:Array<{row:number,col:number}>,
+ *   spawnRatios:Array<{x:number,y:number}>,
+ *   baseGrid:{row:number,col:number},
+ *   baseRatio:{x:number,y:number},
+ *   previewPaths:Array<Array<{x:number,y:number}>>
+ * } | null} map 地圖狀態
  * @property {(options:{x:number,y:number,width?:number,height?:number,source?:string,ensurePath?:boolean}) => {success: boolean, reason?: string}} [addPermanentObstacle]
  * @property {ItemManager} itemManager 道具管理器
  */
@@ -417,7 +427,7 @@ function createInitialState(levelIndex) {
     towers: [],
     enemies: [],
     bullets: [], // 子弹数组
-    activeObstacles: null,
+    map: null,
     addPermanentObstacle: null,
     baseHp: INITIAL_BASE_HP,
     maxBaseHp: INITIAL_BASE_HP,
@@ -485,16 +495,23 @@ export function startGame(levelIndex = 0) {
     state.itemManager.updateInventoryUI();
   }
 
-  // 初始化本關實際使用的障礙佈局（預設 + 隨機）
-  const preparedObstacles = buildLevelObstacles(level);
-  setActiveObstacles(preparedObstacles);
+  // 初始化地圖狀態（包含障礙、阻塞網格、路徑預覽等）
+  state.map = buildMapState(level);
   registerObstacleApi();
 
-  // 設置當前關卡的出生點
-  currentSpawnPoints = level.spawnPoints || [];
-
-  // 更新 BASE 位置
-  updateBasePosition(level.basePosition);
+  if (state.map) {
+    applyGameFieldDimensions(state.map);
+    currentSpawnPoints = state.map.spawnRatios;
+    if (state.map.baseRatio) {
+      updateBasePosition(state.map.baseRatio);
+    }
+    renderObstacles(state.map);
+  } else {
+    currentSpawnPoints = level.spawnPoints || [];
+    if (level.basePosition) {
+      updateBasePosition(level.basePosition);
+    }
+  }
 
   // 更新戰場背景主題
   const field = uiElements.gameField;
@@ -508,9 +525,6 @@ export function startGame(levelIndex = 0) {
   if (level.backgroundClass) {
     field.classList.add(level.backgroundClass);
   }
-
-  // 渲染障礙物
-  renderObstacles(level);
 
   // 重置布局卡buff
   activeLayoutBuffs = [];
@@ -544,12 +558,6 @@ export function startGame(levelIndex = 0) {
   state.phase = "setup";
   state.running = false;
   
-  // 检查 BASE 与障碍物的碰撞
-  checkBaseObstacleCollision(level);
-  
-  // 确保 previewPaths 末点接近 basePosition
-  ensurePathsEndAtBase(level);
-  
   // 显示关卡开始气泡
   const prepTime = level.setupTimeSeconds || 10; // 从关卡配置获取布置时间
   // 根据关卡生成描述
@@ -570,13 +578,16 @@ export function startGame(levelIndex = 0) {
   };
   
   // 显示路径预览和障碍物高亮（布置阶段）
-  showPathPreview(level);
+  if (state.map?.previewPaths && state.map.previewPaths.length > 0) {
+    showPathPreview(state.map.previewPaths);
+  } else if (level.previewPaths) {
+    showPathPreview(level.previewPaths);
+  }
   highlightObstacles();
   
   // 【新逻辑】初始化调试模式（通过featureFlags.debugOverlay控制）
-  if (featureFlags.debugOverlay && getDebugMode()) {
-    const debugLevel = { ...level, obstacles: getLevelObstacles(level) };
-    renderGridMarkers(debugLevel, state.towers, state.enemies);
+  if (featureFlags.debugOverlay && getDebugMode() && state.map) {
+    renderGridMarkers(state.map, state.towers, state.enemies);
   }
   
   // 验证初始状态：确保在没有塔的情况下，入口到BASE有路径
@@ -699,273 +710,6 @@ function clearFieldDom() {
 }
 
 /**
- * 取得當前關卡實際生效的障礙陣列（預設 + 隨機 + 玩家生成）。
- * @param {typeof LEVELS[0]} level
- * @returns {Array<{x:number,y:number,width:number,height:number,source?:string}>}
- */
-function getLevelObstacles(level) {
-  if (state && Array.isArray(state.activeObstacles)) {
-    return state.activeObstacles;
-  }
-  return Array.isArray(level?.obstacles) ? level.obstacles : [];
-}
-
-/**
- * 將障礙佈局寫回當前遊戲狀態。
- * @param {Array<{x:number,y:number,width:number,height:number,source?:string}>} obstacles
- */
-function setActiveObstacles(obstacles) {
-  if (!state) return;
-  state.activeObstacles = obstacles.map((obs) => ({ ...obs }));
-}
-
-/**
- * 基於關卡配置建立一次性的障礙佈局（合併預設與隨機障礙）。
- * @param {typeof LEVELS[0]} level
- */
-function buildLevelObstacles(level) {
-  const preset = Array.isArray(level.obstacles)
-    ? level.obstacles.map((obs) => ({ ...obs, source: obs.source || "preset" }))
-    : [];
-  return generateRandomObstacles(level, preset);
-}
-
-/**
- * 評估並生成隨機障礙。
- * @param {typeof LEVELS[0]} level
- * @param {Array} baseLayout
- */
-function generateRandomObstacles(level, baseLayout = []) {
-  const layout = baseLayout.map((obs) => ({ ...obs }));
-  const config = level.randomObstacles;
-  if (!config || !config.count) {
-    return layout;
-  }
-
-  const fieldRect = uiElements.gameField.getBoundingClientRect();
-  const mapSize = getMapSize();
-  if (fieldRect.width === 0 || fieldRect.height === 0 || mapSize.width === 0 || mapSize.height === 0) {
-    return layout;
-  }
-
-  const tileWidthRatio = GRID_CONFIG.TILE_SIZE / fieldRect.width;
-  const tileHeightRatio = GRID_CONFIG.TILE_SIZE / fieldRect.height;
-  const maxAttemptsPerObstacle = config.maxAttemptsPerObstacle ?? 20;
-  const maxAttempts = Math.max(1, config.count * maxAttemptsPerObstacle);
-  let generated = 0;
-  let attempts = 0;
-
-  while (generated < config.count && attempts < maxAttempts) {
-    attempts++;
-    const row = Math.floor(Math.random() * mapSize.height);
-    const col = Math.floor(Math.random() * mapSize.width);
-    const left = col * GRID_CONFIG.TILE_SIZE;
-    const top = row * GRID_CONFIG.TILE_SIZE;
-
-    const normalized = {
-      x: left / fieldRect.width,
-      y: top / fieldRect.height,
-      width: tileWidthRatio,
-      height: tileHeightRatio,
-      source: "random",
-    };
-
-    if (normalized.x + normalized.width > 1 || normalized.y + normalized.height > 1) {
-      continue;
-    }
-
-    if (!canPlaceRandomObstacle(level, layout, normalized, config, fieldRect)) {
-      continue;
-    }
-
-    const prospective = [...layout, normalized];
-    if (!hasReachablePath(level, prospective)) {
-      continue;
-    }
-
-    layout.push(normalized);
-    generated++;
-  }
-
-  if (generated < config.count) {
-    console.warn(
-      `[level] 随机障碍仅生成 ${generated}/${config.count} 个（${level.name}），以避免堵死道路。`
-    );
-  }
-
-  return layout;
-}
-
-/**
- * 判斷候選障礙是否滿足距離/重疊等規則。
- */
-function canPlaceRandomObstacle(level, existing, candidate, config, fieldRect) {
-  const avoidBaseRadiusPx =
-    (config.avoidRadiusAroundBase ?? 0) * Math.min(fieldRect.width, fieldRect.height);
-  const avoidEntryRadiusPx =
-    (config.avoidRadiusAroundEntry ?? 0) * Math.min(fieldRect.width, fieldRect.height);
-  const avoidPathDistancePx =
-    (config.avoidPathDistance ?? 0) * Math.min(fieldRect.width, fieldRect.height);
-  const minDistanceBetweenPx =
-    (config.minDistanceBetween ?? 0) * Math.min(fieldRect.width, fieldRect.height);
-
-  const candidateRect = rectToPixels(candidate, fieldRect);
-  const candidateCenter = {
-    x: candidateRect.left + candidateRect.width / 2,
-    y: candidateRect.top + candidateRect.height / 2,
-  };
-
-  // 不與既有障礙重疊
-  for (const obs of existing) {
-    if (rectsOverlap(candidate, obs)) {
-      return false;
-    }
-    if (minDistanceBetweenPx > 0) {
-      const other = rectToPixels(obs, fieldRect);
-      const otherCenter = {
-        x: other.left + other.width / 2,
-        y: other.top + other.height / 2,
-      };
-      const dist = Math.hypot(candidateCenter.x - otherCenter.x, candidateCenter.y - otherCenter.y);
-      if (dist < minDistanceBetweenPx) {
-        return false;
-      }
-    }
-  }
-
-  // 避開基地
-  if (level.basePosition && avoidBaseRadiusPx > 0) {
-    const baseX = level.basePosition.x * fieldRect.width;
-    const baseY = level.basePosition.y * fieldRect.height;
-    if (Math.hypot(candidateCenter.x - baseX, candidateCenter.y - baseY) < avoidBaseRadiusPx + BASE_RADIUS) {
-      return false;
-    }
-  }
-
-  // 避開入口（entryPosition + spawnPoints）
-  const entryPoints = [];
-  if (level.entryPosition) {
-    entryPoints.push(level.entryPosition);
-  }
-  if (level.spawnPoints && level.spawnPoints.length > 0) {
-    entryPoints.push(...level.spawnPoints);
-  }
-  if (entryPoints.length > 0 && avoidEntryRadiusPx > 0) {
-    for (const entry of entryPoints) {
-      const entryX = entry.x * fieldRect.width;
-      const entryY = entry.y * fieldRect.height;
-      if (Math.hypot(candidateCenter.x - entryX, candidateCenter.y - entryY) < avoidEntryRadiusPx) {
-        return false;
-      }
-    }
-  }
-
-  // 避開預覽路徑
-  if (
-    avoidPathDistancePx > 0 &&
-    level.previewPaths &&
-    level.previewPaths.some((path) => path && path.length > 1)
-  ) {
-    for (const path of level.previewPaths) {
-      if (!path || path.length < 2) continue;
-      for (let i = 0; i < path.length - 1; i++) {
-        const p1 = {
-          x: path[i].x * fieldRect.width,
-          y: path[i].y * fieldRect.height,
-        };
-        const p2 = {
-          x: path[i + 1].x * fieldRect.width,
-          y: path[i + 1].y * fieldRect.height,
-        };
-        const dist = pointToLineSegmentDistance(
-          candidateCenter.x,
-          candidateCenter.y,
-          p1.x,
-          p1.y,
-          p2.x,
-          p2.y
-        );
-        if (dist < avoidPathDistancePx) {
-          return false;
-        }
-      }
-    }
-  }
-
-  return true;
-}
-
-/**
- * 將正規化矩形轉換為像素矩形。
- */
-function rectToPixels(rect, fieldRect) {
-  return {
-    left: rect.x * fieldRect.width,
-    top: rect.y * fieldRect.height,
-    width: rect.width * fieldRect.width,
-    height: rect.height * fieldRect.height,
-    right: rect.x * fieldRect.width + rect.width * fieldRect.width,
-    bottom: rect.y * fieldRect.height + rect.height * fieldRect.height,
-  };
-}
-
-function rectsOverlap(a, b) {
-  return !(
-    a.x + a.width <= b.x ||
-    b.x + b.width <= a.x ||
-    a.y + a.height <= b.y ||
-    b.y + b.height <= a.y
-  );
-}
-
-/**
- * 驗證在指定障礙佈局下，至少存在一條入口到 BASE 的路徑。
- * @param {typeof LEVELS[0]} level
- * @param {Array} obstacles
- */
-function hasReachablePath(level, obstacles) {
-  const mapSize = getMapSize();
-  const baseGrid = getBaseGrid(level);
-  const spawnGrids = getSpawnPointsGrid(level);
-  if (!baseGrid || spawnGrids.length === 0) return true;
-
-  const levelSnapshot = { ...level, obstacles };
-  const towers = state ? state.towers : [];
-  const enemies = state ? state.enemies : [];
-  const walkable = (row, col) =>
-    isWalkable(
-      row,
-      col,
-      towers,
-      enemies,
-      levelSnapshot,
-      null,
-      null,
-      true,
-      state,
-      obstacles
-    );
-
-  for (const spawn of spawnGrids) {
-    if (
-      !hasPath(
-        spawn.row,
-        spawn.col,
-        baseGrid.row,
-        baseGrid.col,
-        walkable,
-        mapSize.width,
-        mapSize.height
-      )
-    ) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-/**
  * 註冊供道具 / 腳本使用的永久障礙 API。
  */
 function registerObstacleApi() {
@@ -974,206 +718,466 @@ function registerObstacleApi() {
 }
 
 /**
- * 在當前關卡添加一個永久性障礙。
- * @param {{x:number,y:number,width?:number,height?:number,source?:string,ensurePath?:boolean}} options
+ * 依據地圖狀態調整戰場尺寸。
+ * @param {ReturnType<typeof buildMapState>} mapState
  */
-function placePermanentObstacle(options) {
-  if (!state) {
-    return { success: false, reason: "遊戲尚未開始" };
-  }
-  const level = LEVELS[state.currentLevelIndex];
-  const fieldRect = uiElements.gameField.getBoundingClientRect();
-  const widthPx = options.width ?? GRID_CONFIG.TILE_SIZE;
-  const heightPx = options.height ?? GRID_CONFIG.TILE_SIZE;
-  const source = options.source || "item";
-  const ensurePath = options.ensurePath !== false;
-
-  const left = options.x - widthPx / 2;
-  const top = options.y - heightPx / 2;
-  const normalized = {
-    x: Math.max(0, Math.min(1 - widthPx / fieldRect.width, left / fieldRect.width)),
-    y: Math.max(0, Math.min(1 - heightPx / fieldRect.height, top / fieldRect.height)),
-    width: widthPx / fieldRect.width,
-    height: heightPx / fieldRect.height,
-    source,
-  };
-
-  const nextLayout = [...getLevelObstacles(level), normalized];
-  if (ensurePath && !hasReachablePath(level, nextLayout)) {
-    return { success: false, reason: "此处放置会完全堵死通路" };
-  }
-
-  setActiveObstacles(nextLayout);
-  renderObstacles(level);
-
-  // 立即通知敵人重新尋路
-  if (state.enemies.length > 0 && featureFlags.newPathfinding) {
-    const mapSize = getMapSize();
-    const baseGrid = getBaseGrid(level);
-    const enemyWalkable = (row, col) =>
-      isWalkable(row, col, state.towers, state.enemies, level, null, null, true, state);
-    recalculateAllEnemyPaths(state.enemies, baseGrid, enemyWalkable, mapSize.width, mapSize.height, state.towers);
-  }
-
-  if (featureFlags.debugOverlay && getDebugMode()) {
-    const snapshot = { ...level, obstacles: getLevelObstacles(level) };
-    renderGridMarkers(snapshot, state.towers, state.enemies);
-  }
-
-  return { success: true };
+function applyGameFieldDimensions(mapState) {
+  if (!uiElements.gameField || !mapState) return;
+  const widthPx = mapState.width * mapState.tileSize;
+  const heightPx = mapState.height * mapState.tileSize;
+  uiElements.gameField.style.setProperty("--map-width-px", `${widthPx}px`);
+  uiElements.gameField.style.setProperty("--map-height-px", `${heightPx}px`);
+  uiElements.gameField.style.setProperty("--tile-size", `${mapState.tileSize}px`);
+  uiElements.gameField.style.width = `${widthPx}px`;
+  uiElements.gameField.style.height = `${heightPx}px`;
 }
 
 /**
- * 根據關卡配置渲染障礙物 DOM。
- * @param {typeof LEVELS[0]} level 關卡配置對象
+ * 根據地圖狀態渲染障礙 DOM。
+ * @param {ReturnType<typeof buildMapState>} mapState
  */
-function renderObstacles(level) {
+function renderObstacles(mapState) {
   const field = uiElements.gameField;
-  
-  // 先清除舊的障礙物
+  if (!field || !mapState) return;
+
   const oldObstacles = field.querySelectorAll(".obstacle");
-  oldObstacles.forEach(obs => obs.remove());
-  
-  // 如果關卡沒有障礙物配置，直接返回
-  const obstacles = getLevelObstacles(level);
-  if (!obstacles || obstacles.length === 0) {
-    return;
-  }
-  
-  // 使用 requestAnimationFrame 確保 DOM 已渲染後再計算位置
+  oldObstacles.forEach((obs) => obs.remove());
+
   requestAnimationFrame(() => {
-    const fieldRect = field.getBoundingClientRect();
-    
-    // 創建障礙物 DOM
-    for (const obs of obstacles) {
+    for (const obs of mapState.gridObstacles) {
       const obstacleEl = document.createElement("div");
       obstacleEl.className = "obstacle";
       if (obs.source === "random") {
         obstacleEl.classList.add("obstacle--random");
-      } else if (obs.source === "item") {
+      } else if (obs.source === "player" || obs.source === "item") {
         obstacleEl.classList.add("obstacle--player");
       }
       if (obs.source) {
         obstacleEl.dataset.source = obs.source;
       }
-      
-      // 將相對座標（0~1）轉換為絕對像素位置
-      const x = obs.x * fieldRect.width;
-      const y = obs.y * fieldRect.height;
-      const width = obs.width * fieldRect.width;
-      const height = obs.height * fieldRect.height;
-      
-      obstacleEl.style.left = `${x}px`;
-      obstacleEl.style.top = `${y}px`;
-      obstacleEl.style.width = `${width}px`;
-      obstacleEl.style.height = `${height}px`;
-      
-      // 將障礙物插入到基地之前，確保基地在最上層
+
+      obstacleEl.style.left = `${obs.x * mapState.tileSize}px`;
+      obstacleEl.style.top = `${obs.y * mapState.tileSize}px`;
+      obstacleEl.style.width = `${obs.w * mapState.tileSize}px`;
+      obstacleEl.style.height = `${obs.h * mapState.tileSize}px`;
+
       field.insertBefore(obstacleEl, uiElements.baseEl);
     }
   });
 }
 
 /**
- * 檢查 BASE 與障礙物的碰撞，如果重疊或距離過近則在控制台警告。
- * @param {typeof LEVELS[0]} level 關卡配置對象
+ * 建立地圖狀態：包含障礙、阻塞網格、入口/基地格子以及預覽路徑。
+ * @param {typeof LEVELS[0]} level
  */
-function checkBaseObstacleCollision(level) {
-  const obstacles = getLevelObstacles(level);
-  if (!obstacles || obstacles.length === 0) return;
-  if (!level.basePosition) return;
-  
-  requestAnimationFrame(() => {
-    const fieldRect = uiElements.gameField.getBoundingClientRect();
-    const baseRect = uiElements.baseEl.getBoundingClientRect();
-    
-    // 計算 BASE 中心的世界座標
-    const baseX = level.basePosition.x * fieldRect.width;
-    const baseY = level.basePosition.y * fieldRect.height;
-    
-    // BASE 的矩形（假設 BASE 是圓形，使用半徑作為碰撞盒）
-    const BASE_RADIUS_PX = BASE_RADIUS;
-    const baseRectWorld = {
-      left: baseX - BASE_RADIUS_PX,
-      top: baseY - BASE_RADIUS_PX,
-      right: baseX + BASE_RADIUS_PX,
-      bottom: baseY + BASE_RADIUS_PX,
-    };
-    
-    // 檢查每個障礙物
-    for (const obs of obstacles) {
-      const obsX = obs.x * fieldRect.width;
-      const obsY = obs.y * fieldRect.height;
-      const obsWidth = obs.width * fieldRect.width;
-      const obsHeight = obs.height * fieldRect.height;
-      
-      const obsRect = {
-        left: obsX,
-        top: obsY,
-        right: obsX + obsWidth,
-        bottom: obsY + obsHeight,
-      };
-      
-      // 檢查矩形重疊
-      const overlaps = !(
-        baseRectWorld.right <= obsRect.left ||
-        baseRectWorld.left >= obsRect.right ||
-        baseRectWorld.bottom <= obsRect.top ||
-        baseRectWorld.top >= obsRect.bottom
+function buildMapState(level) {
+  const fallbackMapSize = getMapSize();
+  const mapWidth = level.mapSize?.width || fallbackMapSize.width || 28;
+  const mapHeight = level.mapSize?.height || fallbackMapSize.height || 20;
+  const baseRatio = level.basePosition || { x: 0.5, y: 0.8 };
+  const spawnRatios =
+    Array.isArray(level.spawnPoints) && level.spawnPoints.length > 0
+      ? level.spawnPoints
+      : level.entryPosition
+      ? [level.entryPosition]
+      : [{ x: 0.5, y: 0.02 }];
+
+  const baseGrid = ratioPointToGrid(baseRatio, mapWidth, mapHeight);
+  const spawnGrids = spawnRatios.map((point) => ratioPointToGrid(point, mapWidth, mapHeight));
+
+  let gridObstacles = getConfiguredGridObstacles(level, mapWidth, mapHeight);
+  const randomObstacles = generateStructuredRandomObstacles(level, {
+    mapWidth,
+    mapHeight,
+    baseGrid,
+    spawnGrids,
+    existing: gridObstacles,
+  });
+  gridObstacles = [...gridObstacles, ...randomObstacles];
+
+  let blockedGrid = buildBlockedGrid(mapWidth, mapHeight, gridObstacles);
+  let safeBaseGrid = baseGrid;
+  if (blockedGrid[baseGrid.row]?.[baseGrid.col]) {
+    const resolved = findNearestWalkableTile(baseGrid, blockedGrid, mapWidth, mapHeight);
+    if (resolved) {
+      console.warn(
+        `[map] 基地預設格子(${baseGrid.row},${baseGrid.col}) 被障礙覆蓋，已自動移動到 (${resolved.row},${resolved.col})。`
       );
-      
-      if (overlaps) {
-        console.warn(
-          `[DOM 塔防卡] 警告：關卡 ${level.id} (${level.name}) 的 BASE 位置與障礙物重疊！`,
-          `BASE: (${level.basePosition.x.toFixed(2)}, ${level.basePosition.y.toFixed(2)})`,
-          `障礙物: (${obs.x.toFixed(2)}, ${obs.y.toFixed(2)}, ${obs.width.toFixed(2)}, ${obs.height.toFixed(2)})`
-        );
+      safeBaseGrid = resolved;
+    } else {
+      console.warn(
+        `[map] 基地格子(${baseGrid.row},${baseGrid.col}) 被障礙覆蓋且無法移動，強制清理該格子。`
+      );
+      blockedGrid[baseGrid.row][baseGrid.col] = false;
+    }
+  }
+
+  const previewPaths = computePreviewPaths(spawnGrids, safeBaseGrid, blockedGrid, mapWidth, mapHeight);
+
+  return {
+    tileSize: GRID_CONFIG.TILE_SIZE,
+    width: mapWidth,
+    height: mapHeight,
+    gridObstacles,
+    blockedGrid,
+    spawnGrids,
+    spawnRatios: spawnGrids.map((grid) => gridToNormalized(grid, mapWidth, mapHeight)),
+    baseGrid: safeBaseGrid,
+    baseRatio: gridToNormalized(safeBaseGrid, mapWidth, mapHeight),
+    previewPaths,
+  };
+}
+
+function getConfiguredGridObstacles(level, mapWidth, mapHeight) {
+  if (Array.isArray(level.gridObstacles) && level.gridObstacles.length > 0) {
+    return level.gridObstacles.map((obs) => ({
+      x: Math.max(0, Math.min(mapWidth - 1, Math.floor(obs.x))),
+      y: Math.max(0, Math.min(mapHeight - 1, Math.floor(obs.y))),
+      w: Math.max(1, Math.min(mapWidth - Math.max(0, Math.floor(obs.x)), Math.floor(obs.w || 1))),
+      h: Math.max(1, Math.min(mapHeight - Math.max(0, Math.floor(obs.y)), Math.floor(obs.h || 1))),
+      source: obs.source || "preset",
+    }));
+  }
+  if (Array.isArray(level.obstacles) && level.obstacles.length > 0) {
+    return level.obstacles.map((obs) => normalizedObstacleToGrid(obs, mapWidth, mapHeight));
+  }
+  return [];
+}
+
+function normalizedObstacleToGrid(obstacle, mapWidth, mapHeight) {
+  const x = Math.max(0, Math.min(mapWidth - 1, Math.floor((obstacle.x ?? 0) * mapWidth)));
+  const y = Math.max(0, Math.min(mapHeight - 1, Math.floor((obstacle.y ?? 0) * mapHeight)));
+  const w = Math.max(1, Math.round((obstacle.width ?? 0.05) * mapWidth));
+  const h = Math.max(1, Math.round((obstacle.height ?? 0.05) * mapHeight));
+  return {
+    x,
+    y,
+    w: Math.min(mapWidth - x, w),
+    h: Math.min(mapHeight - y, h),
+    source: obstacle.source || "preset",
+  };
+}
+
+function ratioPointToGrid(point, mapWidth, mapHeight) {
+  const clampedX = Math.max(0, Math.min(1, Number(point?.x ?? 0.5)));
+  const clampedY = Math.max(0, Math.min(1, Number(point?.y ?? 0.5)));
+  return {
+    col: Math.max(0, Math.min(mapWidth - 1, Math.round(clampedX * (mapWidth - 1)))),
+    row: Math.max(0, Math.min(mapHeight - 1, Math.round(clampedY * (mapHeight - 1)))),
+  };
+}
+
+function gridToNormalized(grid, mapWidth, mapHeight) {
+  return {
+    x: (grid.col + 0.5) / mapWidth,
+    y: (grid.row + 0.5) / mapHeight,
+  };
+}
+
+function buildBlockedGrid(mapWidth, mapHeight, obstacles) {
+  const blocked = Array.from({ length: mapHeight }, () => Array(mapWidth).fill(false));
+  const warnedTiles = new Set();
+  for (const obs of obstacles) {
+    for (let r = obs.y; r < obs.y + obs.h; r++) {
+      for (let c = obs.x; c < obs.x + obs.w; c++) {
+        if (r < 0 || c < 0 || r >= mapHeight || c >= mapWidth) {
+          if (!warnedTiles.has("out-of-range")) {
+            console.warn("[map] 發現超出界限的障礙，已自動裁剪。");
+            warnedTiles.add("out-of-range");
+          }
+          continue;
+        }
+        const key = `${r},${c}`;
+        if (blocked[r][c]) {
+          if (!warnedTiles.has(key)) {
+            console.warn(`[map] 障礙重疊於格子 (${r},${c})，保留最早的障礙。`);
+            warnedTiles.add(key);
+          }
+          continue;
+        }
+        blocked[r][c] = true;
       }
     }
-  });
+  }
+  return blocked;
+}
+
+function generateStructuredRandomObstacles(level, context) {
+  const config = level.randomObstacles;
+  if (!config || !config.count) {
+    return [];
+  }
+  const mapWidth = context.mapWidth;
+  const mapHeight = context.mapHeight;
+  const baseGrid = context.baseGrid;
+  const spawnGrids = context.spawnGrids;
+  const working = context.existing.map((obs) => ({ ...obs }));
+  const results = [];
+
+  const minGap = Math.max(1, Math.round((config.minDistanceBetween ?? 0.05) * Math.min(mapWidth, mapHeight)));
+  const baseBuffer = Math.max(2, Math.round((config.avoidRadiusAroundBase ?? 0.15) * Math.min(mapWidth, mapHeight)));
+  const spawnBuffer = Math.max(2, Math.round((config.avoidRadiusAroundEntry ?? 0.1) * Math.min(mapWidth, mapHeight)));
+  const corridorPadding = Math.max(1, Math.round((config.avoidPathDistance ?? 0.05) * Math.min(mapWidth, mapHeight)));
+  const corridors = createReservedCorridors(mapWidth, mapHeight, baseGrid, corridorPadding);
+  const maxAttempts = Math.max(config.count * (config.maxAttemptsPerObstacle ?? 18), config.count * 10);
+
+  let attempts = 0;
+  while (results.length < config.count && attempts < maxAttempts) {
+    attempts++;
+    const candidate = createRandomObstacleShape(mapWidth, mapHeight);
+    if (!candidate) continue;
+    if (!rectWithinBounds(candidate, mapWidth, mapHeight)) continue;
+    if (intersectsCircle(candidate, baseGrid, baseBuffer)) continue;
+    if (spawnGrids.some((spawn) => intersectsCircle(candidate, spawn, spawnBuffer))) continue;
+    if (intersectsCorridors(candidate, corridors)) continue;
+    if (working.some((obs) => rectanglesOverlapGrid(candidate, obs) || rectanglesTooCloseGrid(candidate, obs, minGap))) {
+      continue;
+    }
+
+    const testLayout = [...working, candidate];
+    if (!pathsRemain(spawnGrids, baseGrid, testLayout, mapWidth, mapHeight)) {
+      continue;
+    }
+
+    candidate.source = "random";
+    working.push(candidate);
+    results.push(candidate);
+  }
+
+  if (results.length < config.count) {
+    console.warn(
+      `[map] 隨機障礙僅生成 ${results.length}/${config.count} 個（${level.name}），以維持主路暢通。`
+    );
+  }
+
+  return results;
+}
+
+function createRandomObstacleShape(mapWidth, mapHeight) {
+  const roll = Math.random();
+  if (roll < 0.45) {
+    const w = randomInt(4, Math.max(5, Math.round(mapWidth * 0.25)));
+    const h = randomInt(2, 3);
+    return { x: randomInt(0, Math.max(0, mapWidth - w)), y: randomInt(0, Math.max(0, mapHeight - h)), w, h };
+  }
+  if (roll < 0.75) {
+    const w = randomInt(2, 3);
+    const h = randomInt(4, Math.max(5, Math.round(mapHeight * 0.25)));
+    return { x: randomInt(0, Math.max(0, mapWidth - w)), y: randomInt(0, Math.max(0, mapHeight - h)), w, h };
+  }
+  const w = randomInt(3, 6);
+  const h = randomInt(3, 5);
+  return { x: randomInt(0, Math.max(0, mapWidth - w)), y: randomInt(0, Math.max(0, mapHeight - h)), w, h };
+}
+
+function randomInt(min, max) {
+  if (max <= min) return min;
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function rectWithinBounds(rect, mapWidth, mapHeight) {
+  return rect.x >= 0 && rect.y >= 0 && rect.x + rect.w <= mapWidth && rect.y + rect.h <= mapHeight;
+}
+
+function intersectsCircle(rect, center, radius) {
+  if (!center) return false;
+  const nearestX = Math.max(rect.x, Math.min(center.col, rect.x + rect.w - 1));
+  const nearestY = Math.max(rect.y, Math.min(center.row, rect.y + rect.h - 1));
+  const dx = nearestX - center.col;
+  const dy = nearestY - center.row;
+  return dx * dx + dy * dy <= radius * radius;
+}
+
+function rectanglesOverlapGrid(a, b) {
+  return !(a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y);
+}
+
+function rectanglesTooCloseGrid(a, b, gap) {
+  const expanded = {
+    x: a.x - gap,
+    y: a.y - gap,
+    w: a.w + gap * 2,
+    h: a.h + gap * 2,
+  };
+  return rectanglesOverlapGrid(expanded, b);
+}
+
+function createReservedCorridors(mapWidth, mapHeight, baseGrid, padding) {
+  const corridors = [];
+  const halfWidth = Math.max(1, Math.round(mapWidth * 0.05)) + padding;
+  const halfHeight = Math.max(1, Math.round(mapHeight * 0.05)) + padding;
+  const vertical = {
+    x: Math.max(0, baseGrid.col - halfWidth),
+    y: 0,
+    w: Math.min(mapWidth, halfWidth * 2 + 1),
+    h: mapHeight,
+  };
+  const horizontal = {
+    x: 0,
+    y: Math.max(0, baseGrid.row - halfHeight),
+    w: mapWidth,
+    h: Math.min(mapHeight, halfHeight * 2 + 1),
+  };
+  corridors.push(vertical, horizontal);
+  return corridors;
+}
+
+function intersectsCorridors(rect, corridors) {
+  return corridors.some((corridor) => rectanglesOverlapGrid(rect, corridor));
+}
+
+function pathsRemain(spawnGrids, baseGrid, obstacles, mapWidth, mapHeight) {
+  if (!baseGrid || spawnGrids.length === 0) return true;
+  const blocked = buildBlockedGrid(mapWidth, mapHeight, obstacles);
+  const walker = (row, col) => {
+    if (row < 0 || row >= mapHeight || col < 0 || col >= mapWidth) return false;
+    if (row === baseGrid.row && col === baseGrid.col) return true;
+    if (spawnGrids.some((spawn) => spawn.row === row && spawn.col === col)) return true;
+    return !blocked[row][col];
+  };
+  for (const spawn of spawnGrids) {
+    const path = findPath(
+      spawn.row,
+      spawn.col,
+      baseGrid.row,
+      baseGrid.col,
+      walker,
+      mapWidth,
+      mapHeight,
+      false
+    );
+    if (!path || path.length === 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function computePreviewPaths(spawnGrids, baseGrid, blockedGrid, mapWidth, mapHeight) {
+  if (!baseGrid || spawnGrids.length === 0) return [];
+  const walker = (row, col) => {
+    if (row < 0 || row >= mapHeight || col < 0 || col >= mapWidth) return false;
+    if (row === baseGrid.row && col === baseGrid.col) return true;
+    if (spawnGrids.some((spawn) => spawn.row === row && spawn.col === col)) return true;
+    return !blockedGrid[row][col];
+  };
+  const paths = [];
+  for (const spawn of spawnGrids) {
+    const path = findPath(
+      spawn.row,
+      spawn.col,
+      baseGrid.row,
+      baseGrid.col,
+      walker,
+      mapWidth,
+      mapHeight,
+      false
+    );
+    if (path && path.length > 0) {
+      paths.push(path.map((node) => gridToNormalized({ col: node.col, row: node.row }, mapWidth, mapHeight)));
+    }
+  }
+  return paths;
+}
+
+function findNearestWalkableTile(startGrid, blockedGrid, mapWidth, mapHeight) {
+  const visited = new Set();
+  const queue = [startGrid];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    const key = `${current.row},${current.col}`;
+    if (visited.has(key)) continue;
+    visited.add(key);
+    if (!blockedGrid[current.row]?.[current.col]) {
+      return current;
+    }
+    const neighbors = [
+      { row: current.row - 1, col: current.col },
+      { row: current.row + 1, col: current.col },
+      { row: current.row, col: current.col - 1 },
+      { row: current.row, col: current.col + 1 },
+    ];
+    for (const neighbor of neighbors) {
+      if (
+        neighbor.row >= 0 &&
+        neighbor.row < mapHeight &&
+        neighbor.col >= 0 &&
+        neighbor.col < mapWidth
+      ) {
+        queue.push(neighbor);
+      }
+    }
+  }
+  return null;
 }
 
 /**
- * 確保 previewPaths 的末點接近 basePosition。
- * 如果末點離基地超過 30 像素，自動在路徑末尾追加基地中心點。
- * @param {typeof LEVELS[0]} level 關卡配置對象
+ * 在當前關卡添加一個永久性障礙。
+ * @param {{x:number,y:number,width?:number,height?:number,source?:string,ensurePath?:boolean}} options
  */
-function ensurePathsEndAtBase(level) {
-  if (!level.previewPaths || level.previewPaths.length === 0) return;
-  if (!level.basePosition) return;
-  
-  requestAnimationFrame(() => {
-    const fieldRect = uiElements.gameField.getBoundingClientRect();
-    const baseX = level.basePosition.x * fieldRect.width;
-    const baseY = level.basePosition.y * fieldRect.height;
-    const threshold = 30; // 30 像素閾值
-    
-    let modified = false;
-    
-    for (const path of level.previewPaths) {
-      if (!path || path.length === 0) continue;
-      
-      const lastPoint = path[path.length - 1];
-      const lastX = lastPoint.x * fieldRect.width;
-      const lastY = lastPoint.y * fieldRect.height;
-      
-      const distToBase = Math.sqrt(
-        (lastX - baseX) ** 2 + (lastY - baseY) ** 2
-      );
-      
-      if (distToBase > threshold) {
-        // 追加基地中心點
-        path.push({ x: level.basePosition.x, y: level.basePosition.y });
-        modified = true;
-      }
-    }
-    
-    if (modified) {
-      console.log(
-        `[DOM 塔防卡] 已自動調整關卡 ${level.id} 的路徑，確保末點接近基地`
-      );
-    }
-  });
+function placePermanentObstacle(options) {
+  if (!state || !state.map) {
+    return { success: false, reason: "遊戲尚未開始" };
+  }
+  const mapState = state.map;
+  const tileSize = mapState.tileSize || GRID_CONFIG.TILE_SIZE;
+  const ensurePath = options.ensurePath !== false;
+  const widthTiles = Math.max(1, Math.round((options.width ?? tileSize) / tileSize));
+  const heightTiles = Math.max(1, Math.round((options.height ?? tileSize) / tileSize));
+  const col = Math.floor(options.x / tileSize);
+  const row = Math.floor(options.y / tileSize);
+  const rect = {
+    x: Math.max(0, Math.min(mapState.width - widthTiles, col - Math.floor(widthTiles / 2))),
+    y: Math.max(0, Math.min(mapState.height - heightTiles, row - Math.floor(heightTiles / 2))),
+    w: widthTiles,
+    h: heightTiles,
+    source: options.source || "player",
+  };
+
+  if (!rectWithinBounds(rect, mapState.width, mapState.height)) {
+    return { success: false, reason: "超出地圖範圍" };
+  }
+  if (mapState.gridObstacles.some((obs) => rectanglesOverlapGrid(rect, obs))) {
+    return { success: false, reason: "該區域已有障礙" };
+  }
+  if (intersectsCircle(rect, mapState.baseGrid, 1.5)) {
+    return { success: false, reason: "不能覆蓋基地" };
+  }
+  if (mapState.spawnGrids.some((spawn) => intersectsCircle(rect, spawn, 1))) {
+    return { success: false, reason: "不能覆蓋敵人入口" };
+  }
+
+  const nextLayout = [...mapState.gridObstacles, rect];
+  if (
+    ensurePath &&
+    !pathsRemain(mapState.spawnGrids, mapState.baseGrid, nextLayout, mapState.width, mapState.height)
+  ) {
+    return { success: false, reason: "此處放置會堵死主路徑" };
+  }
+
+  mapState.gridObstacles = nextLayout;
+  mapState.blockedGrid = buildBlockedGrid(mapState.width, mapState.height, mapState.gridObstacles);
+  renderObstacles(mapState);
+
+  if (featureFlags.debugOverlay && getDebugMode()) {
+    renderGridMarkers(mapState, state.towers, state.enemies);
+  }
+
+  if (state.enemies.length > 0 && featureFlags.newPathfinding && mapState.baseGrid) {
+    const level = LEVELS[state.currentLevelIndex];
+    const enemyWalkable = (row, col) =>
+      isWalkable(row, col, state.towers, state.enemies, level, null, null, true, state);
+    recalculateAllEnemyPaths(
+      state.enemies,
+      mapState.baseGrid,
+      enemyWalkable,
+      mapState.width,
+      mapState.height,
+      state.towers
+    );
+  }
+
+  return { success: true };
 }
 
 /**
@@ -1185,9 +1189,6 @@ function gameLoop(timestamp) {
 
   const delta = timestamp - state.lastFrameTime;
   state.lastFrameTime = timestamp;
-
-  // 檢查長時間暫停自動返回主菜單
-  checkAutoBackToMenu(timestamp);
 
   if (!state.paused) {
     updateGameState(delta, timestamp);
@@ -1304,17 +1305,14 @@ function updateGameState(delta, now) {
   // 【新逻辑】调试模式：更新敌人路径可视化和穿墙检测（通过featureFlags.debugOverlay控制）
   if (featureFlags.debugOverlay && getDebugMode()) {
     updateEnemyPaths(state.enemies, baseGrid);
-    
-    // 检测所有敌人的穿墙问题
+
     for (const enemy of state.enemies) {
       if (enemy.alive) {
-        checkEnemyCollision(enemy, enemyIsWalkable, level);
+        checkEnemyCollision(enemy, enemyIsWalkable, state.map || level);
       }
     }
-    
-    // 更新格子标记（显示敌人当前位置）
-    const debugLevelMid = { ...level, obstacles: getLevelObstacles(level) };
-    renderGridMarkers(debugLevelMid, state.towers, state.enemies);
+
+    renderGridMarkers(state.map, state.towers, state.enemies);
   }
 
   // 腳本注入怪干擾塔：靠近塔時可能暫時禁用塔
@@ -1553,9 +1551,8 @@ function updateTowers(towers, enemies, now, bullets, gameField) {
 
     if (now - tower.lastAttackTime < tower.attackInterval) continue;
 
-    const tr = tower.el.getBoundingClientRect();
-    const tx = tr.left + tr.width / 2;
-    const ty = tr.top + tr.height / 2;
+    const tx = tower.x;
+    const ty = tower.y;
 
     /** @type {Enemy[]} */
     const inRangeEnemies = [];
@@ -1563,9 +1560,8 @@ function updateTowers(towers, enemies, now, bullets, gameField) {
     // 收集在射程内的敌人
     for (const enemy of enemies) {
       if (!enemy.alive) continue;
-      const er = enemy.el.getBoundingClientRect();
-      const ex = er.left + er.width / 2;
-      const ey = er.top + er.height / 2;
+      const ex = enemy.x;
+      const ey = enemy.y;
 
       const dx = ex - tx;
       const dy = ey - ty;
@@ -1599,9 +1595,8 @@ function updateTowers(towers, enemies, now, bullets, gameField) {
       // 这里简化为选择最近的敌人
       let nearestDist = Infinity;
       for (const enemy of inRangeEnemies) {
-        const er = enemy.el.getBoundingClientRect();
-        const ex = er.left + er.width / 2;
-        const ey = er.top + er.height / 2;
+        const ex = enemy.x;
+        const ey = enemy.y;
         const dx = ex - tx;
         const dy = ey - ty;
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1615,9 +1610,8 @@ function updateTowers(towers, enemies, now, bullets, gameField) {
     if (!target) continue;
 
     // 获取目标位置
-    const targetRect = target.el.getBoundingClientRect();
-    const targetX = targetRect.left + targetRect.width / 2;
-    const targetY = targetRect.top + targetRect.height / 2;
+    const targetX = target.x;
+    const targetY = target.y;
 
     // 创建子弹
     const bulletSpeed = tower.bulletSpeed || 400;
@@ -2017,10 +2011,8 @@ function handleFieldClick(ev) {
       );
     }
 
-    // 【新逻辑】调试模式：更新格子标记（通过featureFlags.debugOverlay控制）
     if (featureFlags.debugOverlay && getDebugMode()) {
-      const debugLevelLate = { ...level, obstacles: getLevelObstacles(level) };
-      renderGridMarkers(debugLevelLate, state.towers, state.enemies);
+      renderGridMarkers(state.map, state.towers, state.enemies);
     }
 
     selectedAction = null;
@@ -2179,29 +2171,6 @@ function findTowerByElement(el) {
 }
 
 /**
- * 檢查長時間暫停是否應該自動返回主菜單。
- * 只有在 paused === true 且持續超過 AUTO_BACK_TO_MENU_MS 時才觸發。
- * 不影響 setup 階段。
- * @param {number} now 當前時間戳（毫秒）
- */
-function checkAutoBackToMenu(now) {
-  if (!state || !state.running) return;
-  
-  // 只在 battle 或 paused 階段檢查，不影響 setup 階段
-  if (state.phase === "setup") return;
-
-  if (state.paused && state.pauseStartTime !== null) {
-    // 計算暫停持續時間
-    const pauseDuration = now - state.pauseStartTime;
-    if (pauseDuration >= AUTO_BACK_TO_MENU_MS) {
-      // 長時間暫停，自動返回主菜單
-      console.log(`[DOM 塔防卡] 暫停時間超過 ${AUTO_BACK_TO_MENU_MS}ms，自動返回主菜單`);
-      backToMainMenu();
-    }
-  }
-}
-
-/**
  * 切換暫停 / 繼續。
  * 
  * 暫停時：記錄 pauseStartTime，開始計時
@@ -2280,30 +2249,12 @@ function isTowerOverlapping(towers, newX, newY, w, h) {
  * @param {typeof LEVELS[0]} level 關卡配置對象
  * @returns {boolean} 如果落在障礙物內部返回 true
  */
-function isTowerOnObstacle(towerX, towerY, level) {
-  const obstacles = getLevelObstacles(level);
-  if (!obstacles || obstacles.length === 0) return false;
-  
-  const fieldRect = uiElements.gameField.getBoundingClientRect();
-  
-  for (const obs of obstacles) {
-    const obsX = obs.x * fieldRect.width;
-    const obsY = obs.y * fieldRect.height;
-    const obsWidth = obs.width * fieldRect.width;
-    const obsHeight = obs.height * fieldRect.height;
-    
-    // 檢查塔中心點是否在障礙物矩形內
-    if (
-      towerX >= obsX &&
-      towerX <= obsX + obsWidth &&
-      towerY >= obsY &&
-      towerY <= obsY + obsHeight
-    ) {
-      return true;
-    }
-  }
-  
-  return false;
+function isTowerOnObstacle(towerX, towerY) {
+  if (!state?.map) return false;
+  const grid = pixelToGrid(towerX, towerY);
+  return state.map.gridObstacles.some(
+    (obs) => grid.row >= obs.y && grid.row < obs.y + obs.h && grid.col >= obs.x && grid.col < obs.x + obs.w
+  );
 }
 
 /**
@@ -2346,32 +2297,29 @@ function pointToLineSegmentDistance(px, py, x1, y1, x2, y2) {
  * @returns {boolean} 如果過於靠近路徑返回 true
  */
 function isTowerTooCloseToPath(towerX, towerY, level, towerRadius) {
-  if (!level.previewPaths || level.previewPaths.length === 0) return false;
-  
+  const previewPaths = state?.map?.previewPaths && state.map.previewPaths.length > 0
+    ? state.map.previewPaths
+    : level.previewPaths;
+  if (!previewPaths || previewPaths.length === 0) return false;
+
   const fieldRect = uiElements.gameField.getBoundingClientRect();
-  const minDistance = towerRadius + 8; // 塔半徑 + 8 像素緩衝
-  
-  for (const path of level.previewPaths) {
+  const minDistance = towerRadius + 8;
+
+  for (const path of previewPaths) {
     if (!path || path.length < 2) continue;
-    
-    // 檢查塔與路徑每一段線段的距離
     for (let i = 0; i < path.length - 1; i++) {
       const p1 = path[i];
       const p2 = path[i + 1];
-      
       const x1 = p1.x * fieldRect.width;
       const y1 = p1.y * fieldRect.height;
       const x2 = p2.x * fieldRect.width;
       const y2 = p2.y * fieldRect.height;
-      
       const dist = pointToLineSegmentDistance(towerX, towerY, x1, y1, x2, y2);
-      
       if (dist < minDistance) {
         return true;
       }
     }
   }
-  
   return false;
 }
 
@@ -2380,10 +2328,13 @@ function isTowerTooCloseToPath(towerX, towerY, level, towerRadius) {
  * @returns {{width: number, height: number}} 地图宽度和高度（格子数）
  */
 function getMapSize() {
+  if (state?.map) {
+    return { width: state.map.width, height: state.map.height };
+  }
   const fieldRect = uiElements.gameField.getBoundingClientRect();
   return {
-    width: Math.floor(fieldRect.width / GRID_CONFIG.TILE_SIZE),
-    height: Math.floor(fieldRect.height / GRID_CONFIG.TILE_SIZE),
+    width: Math.max(1, Math.floor(fieldRect.width / GRID_CONFIG.TILE_SIZE)),
+    height: Math.max(1, Math.floor(fieldRect.height / GRID_CONFIG.TILE_SIZE)),
   };
 }
 
@@ -2397,8 +2348,7 @@ function getMapSize() {
  * @param {number} testTowerRow 测试放置的塔所在行（可选，用于判断塔放置）
  * @param {number} testTowerCol 测试放置的塔所在列（可选）
  * @param {boolean} allowBaseAndSpawn 是否允许BASE和入口点可走（用于敌人寻路，默认false）
- * @param {GameState} [gameState] 游戏状态（可选，用于检查临时障碍物）
- * @param {Array} [overrideObstacles] 可選，顯式指定要檢查的障礙佈局
+ * @param {GameState} [gameState] 游戏状态（可选）
  * @returns {boolean} 如果可走返回true
  */
 function isWalkable(
@@ -2410,93 +2360,61 @@ function isWalkable(
   testTowerRow = null,
   testTowerCol = null,
   allowBaseAndSpawn = false,
-  gameState = null,
-  overrideObstacles = null
+  gameState = null
 ) {
-  const mapSize = getMapSize();
-  
-  // 检查边界
+  const mapState = gameState?.map || state?.map || null;
+  const mapSize = mapState ? { width: mapState.width, height: mapState.height } : getMapSize();
+
   if (row < 0 || row >= mapSize.height || col < 0 || col >= mapSize.width) {
     return false;
   }
-  
-  const fieldRect = uiElements.gameField.getBoundingClientRect();
-  const pixelPos = gridToPixel(row, col);
-  
-  // 检查是否是测试放置的塔位置（如果是，暂时视为障碍）
+
   if (testTowerRow !== null && testTowerCol !== null && row === testTowerRow && col === testTowerCol) {
     return false;
   }
-  
-  // 如果允许BASE和入口点可走（用于敌人寻路），先检查是否是这些位置
-  if (allowBaseAndSpawn) {
-    // 检查是否是BASE（敌人可以到达BASE）
-    if (level.basePosition) {
-      const baseX = level.basePosition.x * fieldRect.width;
-      const baseY = level.basePosition.y * fieldRect.height;
-      const baseGrid = pixelToGrid(baseX, baseY);
-      if (row === baseGrid.row && col === baseGrid.col) {
-        return true; // BASE是可到达的
-      }
-    }
-    
-    // 检查是否是入口点（敌人可以从入口点出发）
-    if (level.spawnPoints && level.spawnPoints.length > 0) {
-      for (const spawn of level.spawnPoints) {
-        const spawnX = spawn.x * fieldRect.width;
-        const spawnY = spawn.y * fieldRect.height;
-        const spawnGrid = pixelToGrid(spawnX, spawnY);
-        if (row === spawnGrid.row && col === spawnGrid.col) {
-          return true; // 入口点是可走的
-        }
-      }
-    }
+
+  const baseGrid = mapState?.baseGrid || (level ? getBaseGrid(level) : null);
+  const spawnGrids = mapState?.spawnGrids || (level ? getSpawnPointsGrid(level) : []);
+
+  let blocked = false;
+  if (mapState?.blockedGrid) {
+    blocked = mapState.blockedGrid[row]?.[col] ?? false;
+  } else if (level) {
+    const fallbackObstacles = getConfiguredGridObstacles(level, mapSize.width, mapSize.height);
+    blocked = fallbackObstacles.some(
+      (obs) => row >= obs.y && row < obs.y + obs.h && col >= obs.x && col < obs.x + obs.w
+    );
   }
-  
-  // 检查是否在障碍物上
-  const obstacles = Array.isArray(overrideObstacles) ? overrideObstacles : getLevelObstacles(level);
-  if (obstacles && obstacles.length > 0) {
-    for (const obs of obstacles) {
-      const obsX = obs.x * fieldRect.width;
-      const obsY = obs.y * fieldRect.height;
-      const obsWidth = obs.width * fieldRect.width;
-      const obsHeight = obs.height * fieldRect.height;
-      
-      // 检查格子中心是否在障碍物矩形内
-      if (
-        pixelPos.x >= obsX &&
-        pixelPos.x <= obsX + obsWidth &&
-        pixelPos.y >= obsY &&
-        pixelPos.y <= obsY + obsHeight
-      ) {
-        return false;
-      }
-    }
-  }
-  
-  // 检查是否在BASE上（仅当不允许BASE可走时）
-  if (!allowBaseAndSpawn && level.basePosition) {
-    const baseX = level.basePosition.x * fieldRect.width;
-    const baseY = level.basePosition.y * fieldRect.height;
-    const baseGrid = pixelToGrid(baseX, baseY);
-    if (row === baseGrid.row && col === baseGrid.col) {
+
+  if (blocked) {
+    const isBaseTile = baseGrid && row === baseGrid.row && col === baseGrid.col;
+    const isSpawnTile = spawnGrids.some((spawn) => row === spawn.row && col === spawn.col);
+    if (!(allowBaseAndSpawn && (isBaseTile || isSpawnTile))) {
       return false;
     }
   }
-  
-  // 检查是否有塔在该格子
-  for (const tower of towers) {
+
+  if (!allowBaseAndSpawn) {
+    if (baseGrid && row === baseGrid.row && col === baseGrid.col) {
+      return false;
+    }
+    if (spawnGrids.some((spawn) => row === spawn.row && col === spawn.col)) {
+      return false;
+    }
+  }
+
+  const towerList = gameState?.towers ?? towers;
+  for (const tower of towerList) {
     if (!tower.alive) continue;
     const towerGrid = pixelToGrid(tower.x, tower.y);
     if (row === towerGrid.row && col === towerGrid.col) {
       return false;
     }
   }
-  
-  // 检查是否有敌人站在该格子（不能直接盖在小怪头上，但对于寻路来说敌人位置应该是可走的）
-  // 注意：对于敌人寻路，不应该检查其他敌人的位置，因为敌人可以互相重叠通过
+
   if (!allowBaseAndSpawn) {
-    for (const enemy of enemies) {
+    const enemyList = gameState?.enemies ?? enemies;
+    for (const enemy of enemyList) {
       if (!enemy.alive) continue;
       const enemyGrid = pixelToGrid(enemy.x, enemy.y);
       if (row === enemyGrid.row && col === enemyGrid.col) {
@@ -2504,7 +2422,7 @@ function isWalkable(
       }
     }
   }
-  
+
   return true;
 }
 
@@ -2514,10 +2432,13 @@ function isWalkable(
  * @returns {Array<{row: number, col: number}>} 入口点网格坐标数组
  */
 function getSpawnPointsGrid(level) {
+  if (state?.map?.spawnGrids) {
+    return state.map.spawnGrids;
+  }
   if (!level.spawnPoints || level.spawnPoints.length === 0) return [];
-  
+
   const fieldRect = uiElements.gameField.getBoundingClientRect();
-  return level.spawnPoints.map(spawn => {
+  return level.spawnPoints.map((spawn) => {
     const pixelX = spawn.x * fieldRect.width;
     const pixelY = spawn.y * fieldRect.height;
     return pixelToGrid(pixelX, pixelY);
@@ -2530,8 +2451,11 @@ function getSpawnPointsGrid(level) {
  * @returns {{row: number, col: number} | null} BASE网格坐标
  */
 function getBaseGrid(level) {
+  if (state?.map?.baseGrid) {
+    return state.map.baseGrid;
+  }
   if (!level.basePosition) return null;
-  
+
   const fieldRect = uiElements.gameField.getBoundingClientRect();
   const baseX = level.basePosition.x * fieldRect.width;
   const baseY = level.basePosition.y * fieldRect.height;
@@ -2549,179 +2473,56 @@ function canPlaceTowerAt(tileX, tileY) {
   if (!state) {
     return { canPlace: false, reason: "游戏未开始" };
   }
-  
+
   const level = LEVELS[state.currentLevelIndex];
+  const mapState = state.map;
   const mapSize = getMapSize();
-  
-  // 转换为网格坐标
   const towerGrid = pixelToGrid(tileX, tileY);
-  
-  // 检查是否在地图范围内
-  if (towerGrid.row < 0 || towerGrid.row >= mapSize.height || 
-      towerGrid.col < 0 || towerGrid.col >= mapSize.width) {
+
+  if (towerGrid.row < 0 || towerGrid.row >= mapSize.height || towerGrid.col < 0 || towerGrid.col >= mapSize.width) {
     return { canPlace: false, reason: "超出地图范围" };
   }
-  
-  // 获取入口点和BASE
+
   const spawnPoints = getSpawnPointsGrid(level);
   const baseGrid = getBaseGrid(level);
-  
-  // 首先明确检查：不能在入口或BASE上放塔
+
   if (baseGrid && towerGrid.row === baseGrid.row && towerGrid.col === baseGrid.col) {
     return { canPlace: false, reason: "不能覆盖基地" };
   }
-  
+
   for (const spawn of spawnPoints) {
     if (towerGrid.row === spawn.row && towerGrid.col === spawn.col) {
       return { canPlace: false, reason: "不能覆盖入口" };
     }
   }
-  
-  if (!baseGrid || spawnPoints.length === 0) {
+
+  for (const tower of state.towers) {
+    if (!tower.alive) continue;
+    const existingTowerGrid = pixelToGrid(tower.x, tower.y);
+    if (towerGrid.row === existingTowerGrid.row && towerGrid.col === existingTowerGrid.col) {
+      return { canPlace: false, reason: "该位置已有塔" };
+    }
+  }
+
+  const isBlocked = mapState?.blockedGrid
+    ? mapState.blockedGrid[towerGrid.row]?.[towerGrid.col]
+    : !isWalkable(towerGrid.row, towerGrid.col, state.towers, state.enemies, level, null, null, false, state);
+  if (isBlocked) {
+    return { canPlace: false, reason: "不能覆盖障碍物" };
+  }
+
+  if (!featureFlags.newTowerBlockCheck || !mapState || !baseGrid || spawnPoints.length === 0) {
     return { canPlace: true };
   }
-  
-  // 【兜底模式/旧逻辑】简单的塔放置检查：只要不是障碍/base/出入口就允许放置
-  // 【新逻辑】使用寻路算法判断放置后是否仍有从入口到BASE的路径（通过featureFlags.newTowerBlockCheck控制）
-  if (!featureFlags.newTowerBlockCheck) {
-    // 旧逻辑：简单检查
-    // 检查是否已有塔
-    for (const tower of state.towers) {
-      if (!tower.alive) continue;
-      const existingTowerGrid = pixelToGrid(tower.x, tower.y);
-      if (towerGrid.row === existingTowerGrid.row && towerGrid.col === existingTowerGrid.col) {
-        return { canPlace: false, reason: "该位置已有塔" };
-      }
-    }
-    
-    // 检查是否在障碍物上
-    const fieldRect = uiElements.gameField.getBoundingClientRect();
-    const pixelPos = gridToPixel(towerGrid.row, towerGrid.col);
-    const obstacles = getLevelObstacles(level);
-    if (obstacles && obstacles.length > 0) {
-      for (const obs of obstacles) {
-        const obsX = obs.x * fieldRect.width;
-        const obsY = obs.y * fieldRect.height;
-        const obsWidth = obs.width * fieldRect.width;
-        const obsHeight = obs.height * fieldRect.height;
-        
-        if (
-          pixelPos.x >= obsX &&
-          pixelPos.x <= obsX + obsWidth &&
-          pixelPos.y >= obsY &&
-          pixelPos.y <= obsY + obsHeight
-        ) {
-          return { canPlace: false, reason: "不能覆盖障碍物" };
-        }
-      }
-    }
-    
-    // 旧逻辑：简单检查通过，允许放置
-    return { canPlace: true };
+
+  const testObstacle = { x: towerGrid.col, y: towerGrid.row, w: 1, h: 1 };
+  const testLayout = [...mapState.gridObstacles, testObstacle];
+  const pathOk = pathsRemain(spawnPoints, baseGrid, testLayout, mapState.width, mapState.height);
+  if (!pathOk) {
+    return { canPlace: false, reason: "不能完全堵死道路" };
   }
-  
-  // 【新逻辑】使用寻路算法检查是否堵路
-  // 检查是否为空地且不是base/障碍（用于塔放置检查）
-  const isWalkableNow = isWalkable(
-    towerGrid.row, 
-    towerGrid.col, 
-    state.towers, 
-    state.enemies, 
-    level,
-    null,
-    null,
-    false,
-    state
-  );
-  
-  if (!isWalkableNow) {
-    // 检查具体原因
-    // 检查是否已有塔
-    for (const tower of state.towers) {
-      if (!tower.alive) continue;
-      const existingTowerGrid = pixelToGrid(tower.x, tower.y);
-      if (towerGrid.row === existingTowerGrid.row && towerGrid.col === existingTowerGrid.col) {
-        return { canPlace: false, reason: "该位置已有塔" };
-      }
-    }
-    
-    // 检查是否在障碍物上
-    const fieldRect = uiElements.gameField.getBoundingClientRect();
-    const pixelPos = gridToPixel(towerGrid.row, towerGrid.col);
-    const obstacles = getLevelObstacles(level);
-    if (obstacles && obstacles.length > 0) {
-      for (const obs of obstacles) {
-        const obsX = obs.x * fieldRect.width;
-        const obsY = obs.y * fieldRect.height;
-        const obsWidth = obs.width * fieldRect.width;
-        const obsHeight = obs.height * fieldRect.height;
-        
-        if (
-          pixelPos.x >= obsX &&
-          pixelPos.x <= obsX + obsWidth &&
-          pixelPos.y >= obsY &&
-          pixelPos.y <= obsY + obsHeight
-        ) {
-          return { canPlace: false, reason: "不能覆盖障碍物" };
-        }
-      }
-    }
-    
-    return { canPlace: false, reason: "该位置不可放置" };
-  }
-  
-  // 创建一个特殊的isWalkable函数，用于寻路时：
-  // 1. BASE和入口点应该可走（因为要寻路到那里）
-  // 2. 测试的塔位置不可走
-  const isWalkableForPathfinding = (row, col) => {
-    // 检查是否是BASE或入口点（这些应该可走，用于寻路）
-    if (baseGrid && row === baseGrid.row && col === baseGrid.col) {
-      return true; // BASE是可到达的
-    }
-    
-    for (const spawn of spawnPoints) {
-      if (row === spawn.row && col === spawn.col) {
-        return true; // 入口点是可走的
-      }
-    }
-    
-    // 检查是否是测试放置的塔位置（如果是，暂时视为障碍）
-    if (row === towerGrid.row && col === towerGrid.col) {
-      return false;
-    }
-    
-    // 其他情况使用正常的isWalkable检查，但允许BASE和入口点可走（用于寻路）
-    return isWalkable(row, col, state.towers, state.enemies, level, null, null, true, state);
-  };
-  
-  // 检查是否至少有一个入口到BASE有路径
-  let foundPath = false;
-  for (let i = 0; i < spawnPoints.length; i++) {
-    const spawn = spawnPoints[i];
-    
-    // 使用findPath而不是hasPath，这样可以获取更多信息
-    const path = findPath(
-      spawn.row,
-      spawn.col,
-      baseGrid.row,
-      baseGrid.col,
-      isWalkableForPathfinding,
-      mapSize.width,
-      mapSize.height,
-      false // 不允许对角线
-    );
-    
-    if (path && path.length > 0) {
-      foundPath = true;
-      break;
-    }
-  }
-  
-  if (foundPath) {
-    return { canPlace: true };
-  }
-  
-  return { canPlace: false, reason: "不能完全堵死道路" };
+
+  return { canPlace: true };
 }
 
 /**

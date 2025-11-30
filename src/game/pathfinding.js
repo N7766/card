@@ -3,11 +3,13 @@
  * 用于动态计算敌人路径和判断塔放置是否合法
  */
 
+import { MAP_TILE_SIZE } from "./config.js";
+
 /**
  * 网格地图配置
  */
 export const GRID_CONFIG = {
-  TILE_SIZE: 32, // 每个格子的像素大小（与CSS中的网格背景一致）
+  TILE_SIZE: MAP_TILE_SIZE, // 每个格子的像素大小（与CSS中的网格背景一致）
 };
 
 /**

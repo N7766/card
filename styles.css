@@ -2,8 +2,11 @@
   --top-bar-height: 92px;
   --hud-padding-x: clamp(16px, 3vw, 48px);
   --stage-padding: clamp(16px, 3vw, 40px);
-  --sidebar-width: clamp(280px, 24vw, 360px);
-  --sidebar-collapsed-width: 62px;
+  --sidebar-width: clamp(210px, 18vw, 260px);
+  --sidebar-collapsed-width: 58px;
+  --tile-size: 40px;
+  --map-width-px: 1200px;
+  --map-height-px: 720px;
 }
 
 /* 
@@ -30,7 +33,7 @@ body {
 }
 
 body {
-  overflow: hidden;
+  overflow: auto;
   min-height: 100vh;
 }
 
@@ -259,15 +262,15 @@ body {
   align-items: center;
   justify-content: center;
   min-width: 0;
+  overflow: auto;
 }
 
 #game-field {
   position: relative;
-  width: min(100%, 1150px);
-  aspect-ratio: 16 / 9;
-  height: auto;
-  max-height: calc(100vh - var(--top-bar-height) - 140px);
-  min-height: 320px;
+  width: var(--map-width-px);
+  height: var(--map-height-px);
+  min-width: var(--map-width-px);
+  min-height: var(--map-height-px);
   border-radius: 18px;
   overflow: hidden;
   background-image: linear-gradient(135deg, #141b3f, #1b254d);
@@ -393,7 +396,7 @@ body {
       rgba(255, 255, 255, 0.02) 1px,
       transparent 1px
     );
-  background-size: 32px 32px;
+  background-size: var(--tile-size) var(--tile-size);
   pointer-events: none;
 }
 
@@ -2046,9 +2049,6 @@ body {
     flex-direction: column;
   }
 
-  #game-field {
-    width: 100%;
-  }
 }
 
 /* ========================================
@@ -2062,6 +2062,12 @@ body {
   pointer-events: none;
   opacity: 0.4;
   z-index: 1;
+}
+
+.debug-grid-marker-blocked {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  opacity: 0.25;
 }
 
 .debug-grid-marker-obstacle {

@@ -13,6 +13,12 @@
 
 import { pixelToGrid, gridToPixel, GRID_CONFIG, findPath } from "./pathfinding.js";
 
+export const debugConfig = {
+  showGrid: true,
+  showPaths: true,
+  showBlockedTiles: false,
+};
+
 /**
  * 调试模式状态
  */
@@ -259,7 +265,7 @@ function renderEnemyPath(enemy, baseGrid) {
  * @param {Object} baseGrid BASE的网格坐标
  */
 export function updateEnemyPaths(enemies, baseGrid) {
-  if (!isDebugMode || !pathContainer) return;
+  if (!isDebugMode || !pathContainer || !debugConfig.showPaths) return;
   
   // 清除已死亡敌人的路径
   const activeEnemyIds = new Set(enemies.filter(e => e.alive).map(e => e.id));
@@ -287,46 +293,45 @@ export function updateEnemyPaths(enemies, baseGrid) {
  * @param {Array} towers 塔数组
  * @param {Array} enemies 敌人数组（用于检测当前站位）
  */
-export function renderGridMarkers(level = null, towers = [], enemies = []) {
+export function renderGridMarkers(mapState = null, towers = [], enemies = []) {
   if (!isDebugMode || !gridMarkerContainer) return;
-  
-  // 清空现有标记
+
   gridMarkerContainer.innerHTML = "";
-  
-  if (!level) return;
-  
-  const fieldRect = gridMarkerContainer.getBoundingClientRect();
-  const mapSize = {
-    width: Math.floor(fieldRect.width / GRID_CONFIG.TILE_SIZE),
-    height: Math.floor(fieldRect.height / GRID_CONFIG.TILE_SIZE),
-  };
-  
-  const tileSize = GRID_CONFIG.TILE_SIZE;
-  
-  // 标记障碍格子
-  if (level.obstacles && level.obstacles.length > 0) {
-    for (const obs of level.obstacles) {
-      const obsX = obs.x * fieldRect.width;
-      const obsY = obs.y * fieldRect.height;
-      const obsWidth = obs.width * fieldRect.width;
-      const obsHeight = obs.height * fieldRect.height;
-      
+  if (!mapState) return;
+
+  const tileSize = mapState.tileSize || GRID_CONFIG.TILE_SIZE;
+
+  if (debugConfig.showBlockedTiles && Array.isArray(mapState.blockedGrid)) {
+    for (let row = 0; row < mapState.blockedGrid.length; row++) {
+      for (let col = 0; col < mapState.blockedGrid[row].length; col++) {
+        if (!mapState.blockedGrid[row][col]) continue;
+        const blockedMarker = document.createElement("div");
+        blockedMarker.className = "debug-grid-marker debug-grid-marker-blocked";
+        blockedMarker.style.left = `${col * tileSize}px`;
+        blockedMarker.style.top = `${row * tileSize}px`;
+        blockedMarker.style.width = `${tileSize}px`;
+        blockedMarker.style.height = `${tileSize}px`;
+        gridMarkerContainer.appendChild(blockedMarker);
+      }
+    }
+  }
+
+  if (debugConfig.showGrid && Array.isArray(mapState.gridObstacles)) {
+    for (const obs of mapState.gridObstacles) {
       const marker = document.createElement("div");
       marker.className = "debug-grid-marker debug-grid-marker-obstacle";
-      marker.style.left = `${obsX}px`;
-      marker.style.top = `${obsY}px`;
-      marker.style.width = `${obsWidth}px`;
-      marker.style.height = `${obsHeight}px`;
+      marker.style.left = `${obs.x * tileSize}px`;
+      marker.style.top = `${obs.y * tileSize}px`;
+      marker.style.width = `${obs.w * tileSize}px`;
+      marker.style.height = `${obs.h * tileSize}px`;
       gridMarkerContainer.appendChild(marker);
     }
   }
-  
-  // 标记塔格子
+
   for (const tower of towers) {
     if (!tower.alive) continue;
     const grid = pixelToGrid(tower.x, tower.y);
     const pixel = gridToPixel(grid.row, grid.col);
-    
     const marker = document.createElement("div");
     marker.className = "debug-grid-marker debug-grid-marker-tower";
     marker.style.left = `${pixel.x - tileSize / 2}px`;
@@ -335,14 +340,9 @@ export function renderGridMarkers(level = null, towers = [], enemies = []) {
     marker.style.height = `${tileSize}px`;
     gridMarkerContainer.appendChild(marker);
   }
-  
-  // 标记BASE格子
-  if (level.basePosition) {
-    const baseX = level.basePosition.x * fieldRect.width;
-    const baseY = level.basePosition.y * fieldRect.height;
-    const baseGrid = pixelToGrid(baseX, baseY);
-    const basePixel = gridToPixel(baseGrid.row, baseGrid.col);
-    
+
+  if (mapState.baseGrid) {
+    const basePixel = gridToPixel(mapState.baseGrid.row, mapState.baseGrid.col);
     const marker = document.createElement("div");
     marker.className = "debug-grid-marker debug-grid-marker-base";
     marker.style.left = `${basePixel.x - tileSize / 2}px`;
@@ -351,15 +351,10 @@ export function renderGridMarkers(level = null, towers = [], enemies = []) {
     marker.style.height = `${tileSize}px`;
     gridMarkerContainer.appendChild(marker);
   }
-  
-  // 标记入口格子
-  if (level.spawnPoints && level.spawnPoints.length > 0) {
-    for (const spawn of level.spawnPoints) {
-      const spawnX = spawn.x * fieldRect.width;
-      const spawnY = spawn.y * fieldRect.height;
-      const spawnGrid = pixelToGrid(spawnX, spawnY);
-      const spawnPixel = gridToPixel(spawnGrid.row, spawnGrid.col);
-      
+
+  if (Array.isArray(mapState.spawnGrids)) {
+    for (const spawn of mapState.spawnGrids) {
+      const spawnPixel = gridToPixel(spawn.row, spawn.col);
       const marker = document.createElement("div");
       marker.className = "debug-grid-marker debug-grid-marker-spawn";
       marker.style.left = `${spawnPixel.x - tileSize / 2}px`;
@@ -369,13 +364,11 @@ export function renderGridMarkers(level = null, towers = [], enemies = []) {
       gridMarkerContainer.appendChild(marker);
     }
   }
-  
-  // 标记敌人当前站位（用不同颜色）
+
   for (const enemy of enemies) {
     if (!enemy.alive) continue;
     const grid = pixelToGrid(enemy.x, enemy.y);
     const pixel = gridToPixel(grid.row, grid.col);
-    
     const marker = document.createElement("div");
     marker.className = "debug-grid-marker debug-grid-marker-enemy";
     marker.style.left = `${pixel.x - tileSize / 2}px`;
@@ -391,31 +384,56 @@ export function renderGridMarkers(level = null, towers = [], enemies = []) {
  * 检测敌人是否在非法格子上（穿墙检测）
  * @param {Object} enemy 敌人对象
  * @param {function} isWalkable 判断格子是否可走的函数
- * @param {Object} level 关卡配置
+ * @param {Object} mapData 地图状态或关卡配置
  * @returns {boolean} 如果检测到穿墙返回true
  */
-export function checkEnemyCollision(enemy, isWalkable, level) {
+export function checkEnemyCollision(enemy, isWalkable, mapData) {
   if (!isDebugMode || !enemy.alive) return false;
-  
+
   const grid = pixelToGrid(enemy.x, enemy.y);
-  
-  // 检查是否在非法格子上
-  if (!isWalkable(grid.row, grid.col)) {
+
+  let blocked = false;
+  if (mapData?.blockedGrid) {
+    blocked = mapData.blockedGrid[grid.row]?.[grid.col] ?? false;
+  } else if (Array.isArray(mapData?.gridObstacles)) {
+    blocked = mapData.gridObstacles.some(
+      (obs) => grid.row >= obs.y && grid.row < obs.y + obs.h && grid.col >= obs.x && grid.col < obs.x + obs.w
+    );
+  } else if (Array.isArray(mapData?.obstacles) && enemy.el) {
+    const field = enemy.el.closest("#game-field");
+    if (field) {
+      const fieldRect = field.getBoundingClientRect();
+      const pixel = gridToPixel(grid.row, grid.col);
+      blocked = mapData.obstacles.some((obs) => {
+        const obsX = obs.x * fieldRect.width;
+        const obsY = obs.y * fieldRect.height;
+        const obsWidth = obs.width * fieldRect.width;
+        const obsHeight = obs.height * fieldRect.height;
+        return (
+          pixel.x >= obsX &&
+          pixel.x <= obsX + obsWidth &&
+          pixel.y >= obsY &&
+          pixel.y <= obsY + obsHeight
+        );
+      });
+    }
+  }
+
+  if (!blocked) {
+    enemy.el.classList.remove("debug-collision-highlight");
+    return false;
+  }
+
+  const legal = typeof isWalkable === "function" ? isWalkable(grid.row, grid.col) : true;
+  if (!legal) {
     console.warn(
       `[调试] 检测到穿墙：敌人 ${enemy.id} (${enemy.enemyType}) 位于非法格子 (${grid.row}, ${grid.col})`
     );
-    
-    // 在调试模式下高亮该敌人
-    if (!enemy.el.classList.contains("debug-collision-highlight")) {
-      enemy.el.classList.add("debug-collision-highlight");
-    }
-    
+    enemy.el.classList.add("debug-collision-highlight");
     return true;
-  } else {
-    // 正常位置，移除高亮
-    enemy.el.classList.remove("debug-collision-highlight");
   }
-  
+
+  enemy.el.classList.remove("debug-collision-highlight");
   return false;
 }
 

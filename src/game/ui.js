@@ -827,10 +827,10 @@ let pathPreviewContainer = null;
 
 /**
  * 显示路径预览（只在布置阶段）。
- * @param {typeof LEVELS[0]} level 关卡配置对象
+ * @param {Array<Array<{x:number,y:number}>>} paths 归一化路径数组
  */
-export function showPathPreview(level) {
-  if (!gameField || !level.previewPaths || level.previewPaths.length === 0) return;
+export function showPathPreview(paths) {
+  if (!gameField || !Array.isArray(paths) || paths.length === 0) return;
   
   // 清除之前的预览
   hidePathPreview();
@@ -847,7 +847,7 @@ export function showPathPreview(level) {
     const fieldRect = gameField.getBoundingClientRect();
     
     // 为每条路径创建预览线
-    level.previewPaths.forEach((path, pathIndex) => {
+    paths.forEach((path) => {
       if (!path || path.length < 2) return;
       
       // 创建路径线容器

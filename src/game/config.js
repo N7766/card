@@ -55,6 +55,12 @@ export const ENEMY_WIDTH = 40;
 export const ENEMY_HEIGHT = 30;
 
 /**
+ * 地圖網格單元大小（像素）
+ * @type {number}
+ */
+export const MAP_TILE_SIZE = 40;
+
+/**
  * 新的敌人配置系统
  * 统一的敌人类型配置，包含基础属性和奖励
  * 
@@ -458,6 +464,15 @@ export const LEVELS = [
       { x: 0.1, y: 0.1 }, // 左上
       { x: 0.9, y: 0.1 }, // 右上
     ],
+    gridObstacles: [
+      { x: 2, y: 3, w: 5, h: 3 },
+      { x: 21, y: 3, w: 5, h: 3 },
+      { x: 8, y: 2, w: 3, h: 8 },
+      { x: 17, y: 2, w: 3, h: 8 },
+      { x: 5, y: 12, w: 4, h: 3 },
+      { x: 19, y: 12, w: 4, h: 3 },
+      { x: 11, y: 14, w: 6, h: 3 },
+    ],
     obstacles: [
       // 簡單的障礙物，形成基本的通道
       { x: 0.4, y: 0.4, width: 0.12, height: 0.03 },
@@ -472,7 +487,7 @@ export const LEVELS = [
       avoidRadiusAroundBase: 0.2,
       avoidRadiusAroundEntry: 0.12,
       avoidPathDistance: 0.05,
-      minDistanceBetween: 0.035,
+      minDistanceBetween: 0.05,
       maxAttemptsPerObstacle: 18,
     },
     waves: [
@@ -549,6 +564,16 @@ export const LEVELS = [
       { x: 0.1, y: 0.9 }, // 左下
       { x: 0.9, y: 0.9 }, // 右下
     ],
+    gridObstacles: [
+      { x: 5, y: 2, w: 5, h: 5 },
+      { x: 22, y: 2, w: 5, h: 5 },
+      { x: 5, y: 14, w: 5, h: 5 },
+      { x: 22, y: 14, w: 5, h: 5 },
+      { x: 11, y: 4, w: 10, h: 3 },
+      { x: 11, y: 15, w: 10, h: 3 },
+      { x: 4, y: 10, w: 6, h: 3 },
+      { x: 22, y: 10, w: 6, h: 3 },
+    ],
     obstacles: [
       // 用幾條牆組成曲折通道，讓路線差異明顯
       { x: 0.25, y: 0.15, width: 0.02, height: 0.7 },
@@ -561,11 +586,11 @@ export const LEVELS = [
     maxEnergy: 25,
     energyRegenPerSecond: 0.45, // 每2.2秒+1能量
     randomObstacles: {
-      count: 10,
+      count: 8,
       avoidRadiusAroundBase: 0.18,
       avoidRadiusAroundEntry: 0.15,
       avoidPathDistance: 0.06,
-      minDistanceBetween: 0.04,
+      minDistanceBetween: 0.06,
       maxAttemptsPerObstacle: 20,
     },
     waves: [
@@ -660,6 +685,17 @@ export const LEVELS = [
       { x: 0.0, y: 0.5 }, // 左中
       { x: 1.0, y: 0.5 }, // 右中
     ],
+    gridObstacles: [
+      { x: 3, y: 3, w: 6, h: 5 },
+      { x: 25, y: 3, w: 6, h: 5 },
+      { x: 10, y: 2, w: 4, h: 12 },
+      { x: 20, y: 2, w: 4, h: 12 },
+      { x: 6, y: 15, w: 7, h: 3 },
+      { x: 21, y: 15, w: 7, h: 3 },
+      { x: 12, y: 21, w: 10, h: 3 },
+      { x: 2, y: 20, w: 4, h: 5 },
+      { x: 28, y: 20, w: 4, h: 5 },
+    ],
     obstacles: [
       // 複雜的迷宮式障礙，形成多條路徑
       { x: 0.2, y: 0.1, width: 0.15, height: 0.03 },
@@ -675,11 +711,11 @@ export const LEVELS = [
     maxEnergy: 30,
     energyRegenPerSecond: 0.5, // 每2秒+1能量
     randomObstacles: {
-      count: 12,
+      count: 9,
       avoidRadiusAroundBase: 0.16,
       avoidRadiusAroundEntry: 0.15,
       avoidPathDistance: 0.06,
-      minDistanceBetween: 0.035,
+      minDistanceBetween: 0.06,
       maxAttemptsPerObstacle: 24,
     },
     waves: [
@@ -783,13 +819,6 @@ export const HUD_LAYOUT = {
   /** 道具槽位间距（像素） */
   ITEM_SLOT_GAP: 8,
 };
-
-/**
- * 長時間暫停後自動返回主菜單的時間閾值（毫秒）
- * 當遊戲暫停時間超過此值時，會自動返回主菜單
- * @type {number}
- */
-export const AUTO_BACK_TO_MENU_MS = 60000; // 60秒
 
 /**
  * 計算指定關卡的總敵人數
