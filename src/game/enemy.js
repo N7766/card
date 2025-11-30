@@ -1020,7 +1020,7 @@ function recalculateEnemyPath(enemy, baseGrid, isWalkable, mapWidth, mapHeight, 
     // 成功找到路径
     console.log(`[recalculateEnemyPath] 敌人 ${enemy.id} 找到新路径，长度=${newPath.length}`);
     enemy.path = newPath;
-    enemy.pathIndex = 0; // 从路径起点开始
+    enemy.pathIndex = newPath.length > 1 ? 1 : 0; // 跳过所在格子，避免视觉回退
     enemy.lastPathUpdateTime = performance.now();
     enemy.needsPathRecalculation = false;
     return true;

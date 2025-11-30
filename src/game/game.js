@@ -32,6 +32,7 @@ import {
   ENERGY_REGEN_PER_SECOND,
   LEVELS,
   ENEMY_TYPES,
+  ENEMY_CONFIGS,
 } from "./config.js";
 import { getInitialHand } from "./cards.js";
 import {
@@ -268,6 +269,40 @@ function countEnemiesInWaves(waves) {
   return total;
 }
 
+const ENEMY_THREAT_WEIGHTS = Object.freeze({
+  boss: 2.2,
+  sprinter: 1.25,
+  devourer: 1.4,
+  smart: 1.15,
+  healer: 1.2,
+  banner: 1.2,
+  script: 1.3,
+  symbiote: 1.35,
+  courier: 0.9,
+  jammer: 1.6,
+});
+
+function estimateWaveDifficultyScore(wave) {
+  if (!wave || !Array.isArray(wave.enemies)) return 0;
+  let score = 0;
+  for (const group of wave.enemies) {
+    if (!group || typeof group.count !== "number") continue;
+    const config = ENEMY_CONFIGS[group.type] || null;
+    const baseHp = config?.maxHp ?? 40;
+    const moveSpeed = config?.moveSpeed ?? config?.baseSpeed ?? 32;
+    const armor = config?.armor ?? 0;
+    const hpFactor = baseHp * (1 + armor);
+    const speedFactor = moveSpeed * 0.4;
+    const hpMultiplier = group.hpMultiplier ?? 1;
+    const threatMultiplier = ENEMY_THREAT_WEIGHTS[group.type] || 1;
+    const interval = typeof group.interval === "number" ? group.interval : DEFAULT_GROUP_INTERVAL_MS;
+    const spawnPressure = Math.max(0.6, Math.min(1.6, DEFAULT_GROUP_INTERVAL_MS / interval));
+    const unitScore = (hpFactor + speedFactor) * hpMultiplier * threatMultiplier * spawnPressure;
+    score += group.count * unitScore;
+  }
+  return Math.round(score);
+}
+
 /**
  * 返回主菜单，清理当前游戏状态。
  */
@@ -326,6 +361,29 @@ export function backToMainMenu() {
 
 /** @type {SelectedAction | null} */
 let selectedAction = null;
+
+function cancelCurrentSelection(reason = "manual") {
+  let changed = false;
+  if (selectedAction) {
+    selectedAction = null;
+    removeTowerPreview();
+    clearTowerPlacementPreview();
+    changed = true;
+  }
+  const itemManager = state?.itemManager || null;
+  if (itemManager && itemManager.usingItem) {
+    itemManager.cancelUsingItem();
+    changed = true;
+  }
+  if (changed && state) {
+    renderHandCards(state.handCards, handleCardClick, null, state.energy);
+    updateHandEnergyState(state.energy);
+    if (getDebugMode()) {
+      console.log(`[selection] 取消選擇：${reason}`);
+    }
+  }
+  return changed;
+}
 
 /** 塔放置預覽元素 */
 /** @type {HTMLElement | null} */
@@ -412,6 +470,8 @@ export function initGame() {
   // 戰場鼠標移動與點擊，用於處理塔放置與卡牌目標選擇
   uiElements.gameField.addEventListener("mousemove", handleFieldMouseMove);
   uiElements.gameField.addEventListener("click", handleFieldClick);
+  uiElements.gameField.addEventListener("contextmenu", handleFieldContextMenu);
+  window.addEventListener("keydown", handleGlobalKeydown);
 
     // 初次進入顯示開始界面
     showStartScreen();
@@ -1097,9 +1157,18 @@ function intersectsCorridors(rect, corridors) {
   return corridors.some((corridor) => rectanglesOverlapGrid(rect, corridor));
 }
 
-function pathsRemain(spawnGrids, baseGrid, obstacles, mapWidth, mapHeight) {
+function pathsRemain(spawnGrids, baseGrid, obstacles, mapWidth, mapHeight, extraBlocked = []) {
   if (!baseGrid || spawnGrids.length === 0) return true;
   const blocked = buildBlockedGrid(mapWidth, mapHeight, obstacles);
+  if (Array.isArray(extraBlocked) && extraBlocked.length > 0) {
+    for (const tile of extraBlocked) {
+      if (!tile) continue;
+      const { row, col } = tile;
+      if (row >= 0 && row < mapHeight && col >= 0 && col < mapWidth) {
+        blocked[row][col] = true;
+      }
+    }
+  }
   const walker = (row, col) => {
     if (row < 0 || row >= mapHeight || col < 0 || col >= mapWidth) return false;
     if (row === baseGrid.row && col === baseGrid.col) return true;
@@ -1122,6 +1191,17 @@ function pathsRemain(spawnGrids, baseGrid, obstacles, mapWidth, mapHeight) {
     }
   }
   return true;
+}
+
+function collectTowerBlockers(towers) {
+  if (!Array.isArray(towers)) return [];
+  const blockers = [];
+  for (const tower of towers) {
+    if (!tower?.alive) continue;
+    const grid = pixelToGrid(tower.x, tower.y);
+    blockers.push({ row: grid.row, col: grid.col });
+  }
+  return blockers;
 }
 
 function computePreviewPaths(spawnGrids, baseGrid, blockedGrid, mapWidth, mapHeight) {
@@ -1219,9 +1299,17 @@ function placePermanentObstacle(options) {
   }
 
   const nextLayout = [...mapState.gridObstacles, rect];
+  const towerBlockers = collectTowerBlockers(state.towers);
   if (
     ensurePath &&
-    !pathsRemain(mapState.spawnGrids, mapState.baseGrid, nextLayout, mapState.width, mapState.height)
+    !pathsRemain(
+      mapState.spawnGrids,
+      mapState.baseGrid,
+      nextLayout,
+      mapState.width,
+      mapState.height,
+      towerBlockers
+    )
   ) {
     return { success: false, reason: "此處放置會堵死主路徑" };
   }
@@ -1466,6 +1554,14 @@ function startWave(waveIndex) {
     setTimeout(() => {
       showWaveToast("本波敵人護盾增強！", "info");
     }, 600);
+  }
+
+  if (getDebugMode()) {
+    const difficultyScore = estimateWaveDifficultyScore(waves[waveIndex]);
+    const severity = difficultyScore < 600 ? "EASY" : difficultyScore < 1400 ? "MID" : "HARD";
+    console.log(
+      `[wave] Level ${level.id} Wave ${waveId} difficultyScore=${difficultyScore} (${severity})`
+    );
   }
 }
 
@@ -2076,11 +2172,7 @@ function handleCardClick(card) {
 
   // 再次點擊同一張卡，取消選擇
   if (selectedAction && selectedAction.card.id === card.id) {
-    selectedAction = null;
-    removeTowerPreview();
-    clearTowerPlacementPreview();
-    renderHandCards(state.handCards, handleCardClick, null, state.energy);
-    updateHandEnergyState(state.energy);
+    cancelCurrentSelection("toggle-card");
     return;
   }
 
@@ -2151,6 +2243,14 @@ function handleFieldMouseMove(ev) {
   } else {
     clearTowerPlacementPreview();
   }
+}
+
+function handleFieldContextMenu(ev) {
+  if (!state) return;
+  const itemUsing = state.itemManager && state.itemManager.usingItem;
+  if (!selectedAction && !itemUsing) return;
+  ev.preventDefault();
+  cancelCurrentSelection("contextmenu");
 }
 
 /**
@@ -2251,10 +2351,7 @@ function handleFieldClick(ev) {
       renderGridMarkers(state.map, state.towers, state.enemies);
     }
 
-    selectedAction = null;
-    removeTowerPreview();
-    clearTowerPlacementPreview();
-    renderHandCards(state.handCards, handleCardClick, null, state.energy);
+    cancelCurrentSelection("placed-tower");
   } else if (selectedAction.mode === "layout-field") {
     // 佈局卡：點擊戰場後，對整個戰場應用 CSS 類並給所有塔 buff
     applyLayoutCard(card);
@@ -2262,8 +2359,7 @@ function handleFieldClick(ev) {
     updateEnergy(state.energy, state.maxEnergy);
     updateHandEnergyState(state.energy);
 
-    selectedAction = null;
-    renderHandCards(state.handCards, handleCardClick, null, state.energy);
+    cancelCurrentSelection("layout-card");
   } else if (selectedAction.mode === "target-tower") {
     // 樣式卡：需要點擊具體塔
     const towerEl = /** @type {HTMLElement | null} */ (
@@ -2281,8 +2377,15 @@ function handleFieldClick(ev) {
     updateEnergy(state.energy, state.maxEnergy);
     updateHandEnergyState(state.energy);
 
-    selectedAction = null;
-    renderHandCards(state.handCards, handleCardClick, null, state.energy);
+    cancelCurrentSelection("style-card");
+  }
+}
+
+function handleGlobalKeydown(ev) {
+  if (ev.key !== "Escape") return;
+  const cancelled = cancelCurrentSelection("escape");
+  if (cancelled) {
+    ev.preventDefault();
   }
 }
 
@@ -2753,7 +2856,15 @@ function canPlaceTowerAt(tileX, tileY) {
 
   const testObstacle = { x: towerGrid.col, y: towerGrid.row, w: 1, h: 1 };
   const testLayout = [...mapState.gridObstacles, testObstacle];
-  const pathOk = pathsRemain(spawnPoints, baseGrid, testLayout, mapState.width, mapState.height);
+  const towerBlockers = collectTowerBlockers(state.towers);
+  const pathOk = pathsRemain(
+    spawnPoints,
+    baseGrid,
+    testLayout,
+    mapState.width,
+    mapState.height,
+    towerBlockers
+  );
   if (!pathOk) {
     return { canPlace: false, reason: "不能完全堵死道路" };
   }

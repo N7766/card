@@ -13,7 +13,7 @@ export const INITIAL_BASE_HP = 20;
  * 初始能量
  * @type {number}
  */
-export const INITIAL_ENERGY = 5;
+export const INITIAL_ENERGY = 6;
 
 /**
  * 能量上限
@@ -611,9 +611,9 @@ export const LEVELS = [
       { x: 0.55, y: 0.55, width: 0.18, height: 0.03 },
     ],
     // 能量配置：前期偏緊張，讓玩家思考建塔位置
-    initialEnergy: 5,
-    maxEnergy: 20,
-    energyRegenPerSecond: 0.4, // 每2.5秒+1能量
+    initialEnergy: 7,
+    maxEnergy: 22,
+    energyRegenPerSecond: 0.45, // 每約2.2秒+1能量
     randomObstacles: {
       count: 6,
       avoidRadiusAroundBase: 0.2,
@@ -626,46 +626,43 @@ export const LEVELS = [
       {
         id: 1,
         delay: 0,
-        enemies: [{ type: "normal", count: 10, interval: 900 }],
+        enemies: [{ type: "normal", count: 8, interval: 1150 }],
       },
       {
         id: 2,
-        delay: 3200,
-        enemies: [
-          { type: "normal", count: 8, interval: 900 },
-          { type: "sprinter", count: 4, interval: 1400 },
-        ],
+        delay: 4800,
+        enemies: [{ type: "normal", count: 10, interval: 1050 }],
       },
       {
         id: 3,
-        delay: 3600,
+        delay: 5200,
         enemies: [
-          { type: "devourer", count: 3, interval: 1800 },
-          { type: "normal", count: 10, interval: 750 },
+          { type: "normal", count: 12, interval: 1000 },
+          { type: "courier", count: 2, interval: 1600 },
         ],
       },
       {
         id: 4,
-        delay: 3800,
+        delay: 4200,
         enemies: [
-          { type: "smart", count: 6, interval: 1100 },
-          { type: "normal", count: 6, interval: 800 },
+          { type: "sprinter", count: 4, interval: 1200 },
+          { type: "normal", count: 10, interval: 900 },
         ],
       },
       {
         id: 5,
         delay: 4200,
         enemies: [
-          { type: "sprinter", count: 6, interval: 1100 },
-          { type: "banner", count: 2, interval: 2600 },
+          { type: "devourer", count: 2, interval: 2100 },
+          { type: "smart", count: 4, interval: 1200 },
         ],
       },
       {
         id: 6,
-        delay: 4000,
+        delay: 4200,
         enemies: [
-          { type: "normal", count: 12, interval: 700 },
-          { type: "smart", count: 4, interval: 1100 },
+          { type: "sprinter", count: 6, interval: 950 },
+          { type: "banner", count: 2, interval: 2500 },
           { type: "healer", count: 2, interval: 2000 },
         ],
       },
@@ -674,14 +671,15 @@ export const LEVELS = [
         delay: 0,
         enemies: [
           { type: "boss", count: 1, interval: 0, hpMultiplier: 1.05, speedMultiplier: 0.8 },
-          { type: "healer", count: 3, interval: 2000 },
-          { type: "sprinter", count: 6, interval: 900 },
-          { type: "devourer", count: 2, interval: 2200 },
+          { type: "normal", count: 14 },
+          { type: "sprinter", count: 4 },
+          { type: "devourer", count: 2 },
+          { type: "healer", count: 2 },
         ],
       },
     ],
     difficulty: 1, // 难度星级 1~3
-    enemyTypes: ["普通", "冲刺", "吞噬", "智能", "治疗", "BANNER", "Boss"], // 敌人类型
+    enemyTypes: ["普通", "冲刺", "吞噬", "智能", "治疗", "BANNER", "信使", "Boss"], // 敌人类型
     recommended: "推荐多放 DIV 塔防守正面", // 推荐玩法提示
     setupTimeSeconds: 10, // 布置时间（秒）
     previewPaths: [
@@ -733,9 +731,9 @@ export const LEVELS = [
       { x: 0.75, y: 0.0, width: 0.02, height: 0.4 },
     ],
     // 能量配置：中期略富裕，後期再次緊張
-    initialEnergy: 8,
-    maxEnergy: 25,
-    energyRegenPerSecond: 0.45, // 每2.2秒+1能量
+    initialEnergy: 10,
+    maxEnergy: 28,
+    energyRegenPerSecond: 0.46, // 稍快的回能，讓玩家建立多方向防線
     randomObstacles: {
       count: 8,
       avoidRadiusAroundBase: 0.18,
@@ -748,64 +746,53 @@ export const LEVELS = [
       {
         id: 1,
         delay: 0,
-        enemies: [
-          { type: "normal", count: 12 },
-          { type: "sprinter", count: 3 },
-        ],
+        enemies: [{ type: "normal", count: 10, interval: 1150 }],
       },
       {
         id: 2,
-        delay: 3600,
-        enemies: [
-          { type: "normal", count: 12 },
-          { type: "sprinter", count: 4 },
-          { type: "banner", count: 2 },
-        ],
+        delay: 5000,
+        enemies: [{ type: "normal", count: 12, interval: 1000 }],
       },
       {
         id: 3,
-        delay: 3900,
+        delay: 5200,
         enemies: [
-          { type: "normal", count: 14 },
-          { type: "script", count: 2 },
-          { type: "banner", count: 2 },
+          { type: "normal", count: 14, interval: 950 },
+          { type: "sprinter", count: 4, interval: 1250 },
         ],
       },
       {
         id: 4,
-        delay: 4200,
+        delay: 4800,
         enemies: [
-          { type: "normal", count: 16 },
-          { type: "script", count: 3 },
-          { type: "devourer", count: 1 },
-          { type: "healer", count: 2 },
-          { type: "courier", count: 3, interval: 1400 },
+          { type: "normal", count: 12, interval: 900 },
+          { type: "banner", count: 2, interval: 2600 },
         ],
       },
       {
         id: 5,
-        delay: 4500,
+        delay: 4600,
         enemies: [
-          { type: "sprinter", count: 8, interval: 900 },
           { type: "smart", count: 4, interval: 1300 },
+          { type: "sprinter", count: 6, interval: 1000 },
         ],
       },
       {
         id: 6,
-        delay: 4200,
+        delay: 4600,
         enemies: [
-          { type: "banner", count: 3, interval: 2500 },
           { type: "devourer", count: 2, interval: 2200 },
+          { type: "courier", count: 3, interval: 1500 },
           { type: "healer", count: 2, interval: 2000 },
         ],
       },
       {
         id: 7,
-        delay: 4500,
+        delay: 4800,
         enemies: [
-          { type: "normal", count: 18, interval: 700 },
+          { type: "normal", count: 16, interval: 850 },
           { type: "script", count: 4, interval: 1800 },
-          { type: "smart", count: 4, interval: 1200 },
+          { type: "smart", count: 3, interval: 1300 },
         ],
       },
       {
@@ -814,9 +801,9 @@ export const LEVELS = [
         enemies: [
           { type: "boss", count: 1, interval: 0, hpMultiplier: 1.15, speedMultiplier: 0.85 },
           { type: "normal", count: 18 },
-          { type: "script", count: 4 },
+          { type: "sprinter", count: 4 },
           { type: "devourer", count: 2 },
-          { type: "smart", count: 3 },
+          { type: "script", count: 4 },
           { type: "healer", count: 2 },
         ],
       },
@@ -1066,9 +1053,423 @@ export const LEVELS = [
       ],
     ],
   },
+
   {
     id: 4,
-    name: "Level 4 · 單格哨站",
+    name: "Level 4 · 迷宮練習",
+    description: "迷宫式走廊让敌人多次转向，前几波只有普通兵，适合练习控场。",
+    backgroundClass: "map-theme-labyrinth",
+    mapPreset: "labyrinth-practice",
+    mapSize: { width: 26, height: 20 },
+    entryPosition: { x: 0.05, y: 0.1 },
+    basePosition: { x: 0.82, y: 0.78 },
+    baseClearRadiusTiles: 2,
+    spawnPoints: [
+      { x: 0.05, y: 0.1 },
+      { x: 0.05, y: 0.9 },
+      { x: 0.2, y: 0.5 },
+    ],
+    gridObstacles: [
+      { x: 2, y: 2, w: 2, h: 16 },
+      { x: 6, y: 0, w: 2, h: 14 },
+      { x: 10, y: 4, w: 2, h: 14 },
+      { x: 14, y: 2, w: 2, h: 16 },
+      { x: 18, y: 6, w: 2, h: 10 },
+      { x: 8, y: 8, w: 8, h: 2 },
+      { x: 12, y: 12, w: 10, h: 2 },
+      { x: 4, y: 14, w: 7, h: 2 },
+    ],
+    obstacles: [
+      { x: 0.25, y: 0.2, width: 0.04, height: 0.12 },
+      { x: 0.35, y: 0.6, width: 0.05, height: 0.1 },
+      { x: 0.55, y: 0.4, width: 0.04, height: 0.12 },
+    ],
+    initialEnergy: 9,
+    maxEnergy: 26,
+    energyRegenPerSecond: 0.46,
+    randomObstacles: {
+      count: 4,
+      avoidRadiusAroundBase: 0.2,
+      avoidRadiusAroundEntry: 0.12,
+      avoidPathDistance: 0.07,
+      minDistanceBetween: 0.07,
+      maxAttemptsPerObstacle: 16,
+    },
+    waves: [
+      { id: 1, delay: 0, enemies: [{ type: "normal", count: 12, interval: 1100 }] },
+      { id: 2, delay: 4800, enemies: [{ type: "normal", count: 14, interval: 1000 }] },
+      {
+        id: 3,
+        delay: 5000,
+        enemies: [
+          { type: "normal", count: 12, interval: 950 },
+          { type: "smart", count: 2, interval: 1400 },
+        ],
+      },
+      {
+        id: 4,
+        delay: 4600,
+        enemies: [
+          { type: "sprinter", count: 4, interval: 1100 },
+          { type: "normal", count: 12, interval: 900 },
+        ],
+      },
+      {
+        id: 5,
+        delay: 4400,
+        enemies: [
+          { type: "devourer", count: 2, interval: 2200 },
+          { type: "smart", count: 4, interval: 1200 },
+        ],
+      },
+      {
+        id: 6,
+        delay: 4600,
+        enemies: [
+          { type: "banner", count: 2, interval: 2500 },
+          { type: "normal", count: 16, interval: 820 },
+        ],
+      },
+      {
+        id: 7,
+        delay: 4800,
+        enemies: [
+          { type: "script", count: 4, interval: 1600 },
+          { type: "sprinter", count: 6, interval: 950 },
+        ],
+      },
+      {
+        id: 8,
+        delay: 0,
+        enemies: [
+          { type: "boss", count: 1, interval: 0, hpMultiplier: 1.1, speedMultiplier: 0.85 },
+          { type: "normal", count: 18 },
+          { type: "smart", count: 4 },
+          { type: "healer", count: 2 },
+        ],
+      },
+    ],
+    difficulty: 2,
+    enemyTypes: ["普通", "智能", "冲刺", "吞噬", "BANNER", "SCRIPT", "治疗", "Boss"],
+    recommended: "利用迷宫拐角堆叠范围塔，保持对长路径的持续输出。",
+    setupTimeSeconds: 11,
+    previewPaths: [
+      [
+        { x: 0.05, y: 0.1 },
+        { x: 0.35, y: 0.2 },
+        { x: 0.6, y: 0.4 },
+        { x: 0.82, y: 0.78 },
+      ],
+      [
+        { x: 0.05, y: 0.9 },
+        { x: 0.3, y: 0.8 },
+        { x: 0.62, y: 0.6 },
+        { x: 0.82, y: 0.78 },
+      ],
+      [
+        { x: 0.2, y: 0.5 },
+        { x: 0.45, y: 0.5 },
+        { x: 0.7, y: 0.65 },
+        { x: 0.82, y: 0.78 },
+      ],
+    ],
+  },
+
+  {
+    id: 5,
+    name: "Level 5 · 護盾試煉",
+    description: "敌人开始携带护盾与共生体，前几波仍以基础兵种为主，中后期逐渐压迫。",
+    backgroundClass: "map-theme-oasis",
+    mapPreset: "shield-trial",
+    mapSize: { width: 28, height: 22 },
+    entryPosition: { x: 0.1, y: 0.1 },
+    basePosition: { x: 0.72, y: 0.78 },
+    baseClearRadiusTiles: 3,
+    spawnPoints: [
+      { x: 0.1, y: 0.1 },
+      { x: 0.15, y: 0.85 },
+      { x: 0.4, y: 0.0 },
+    ],
+    gridObstacles: [
+      { x: 4, y: 3, w: 3, h: 15 },
+      { x: 9, y: 5, w: 3, h: 13 },
+      { x: 14, y: 7, w: 3, h: 11 },
+      { x: 19, y: 5, w: 3, h: 13 },
+      { x: 10, y: 14, w: 10, h: 2 },
+      { x: 6, y: 17, w: 16, h: 2 },
+      { x: 16, y: 10, w: 2, h: 8 },
+    ],
+    obstacles: [
+      { x: 0.3, y: 0.2, width: 0.05, height: 0.08 },
+      { x: 0.45, y: 0.6, width: 0.04, height: 0.12 },
+      { x: 0.6, y: 0.4, width: 0.05, height: 0.08 },
+    ],
+    initialEnergy: 11,
+    maxEnergy: 30,
+    energyRegenPerSecond: 0.48,
+    randomObstacles: {
+      count: 5,
+      avoidRadiusAroundBase: 0.22,
+      avoidRadiusAroundEntry: 0.12,
+      avoidPathDistance: 0.06,
+      minDistanceBetween: 0.08,
+      maxAttemptsPerObstacle: 18,
+    },
+    waves: [
+      { id: 1, delay: 0, enemies: [{ type: "normal", count: 12, interval: 1100 }] },
+      {
+        id: 2,
+        delay: 4800,
+        enemies: [
+          { type: "normal", count: 12, interval: 1000 },
+          { type: "courier", count: 2, interval: 1500 },
+        ],
+      },
+      {
+        id: 3,
+        delay: 5000,
+        enemies: [
+          { type: "symbiote", count: 2, interval: 2100 },
+          { type: "normal", count: 10, interval: 900 },
+        ],
+      },
+      {
+        id: 4,
+        delay: 4800,
+        enemies: [
+          { type: "healer", count: 2, interval: 2000 },
+          { type: "smart", count: 4, interval: 1200 },
+        ],
+      },
+      {
+        id: 5,
+        delay: 4600,
+        enemies: [
+          { type: "banner", count: 2, interval: 2400 },
+          { type: "symbiote", count: 3, interval: 1900 },
+        ],
+      },
+      {
+        id: 6,
+        delay: 4600,
+        enemies: [
+          { type: "sprinter", count: 6, interval: 950 },
+          { type: "devourer", count: 2, interval: 2200 },
+        ],
+      },
+      {
+        id: 7,
+        delay: 4600,
+        enemies: [
+          { type: "script", count: 4, interval: 1600 },
+          { type: "healer", count: 3, interval: 2000 },
+          { type: "courier", count: 3, interval: 1500 },
+        ],
+      },
+      {
+        id: 8,
+        delay: 4800,
+        enemies: [
+          { type: "symbiote", count: 3, interval: 1800 },
+          { type: "smart", count: 4, interval: 1100 },
+          { type: "normal", count: 16, interval: 850 },
+        ],
+      },
+      {
+        id: 9,
+        delay: 0,
+        enemies: [
+          { type: "boss", count: 1, interval: 0, hpMultiplier: 1.2, speedMultiplier: 0.85 },
+          { type: "symbiote", count: 3 },
+          { type: "banner", count: 2 },
+          { type: "smart", count: 4 },
+          { type: "healer", count: 3 },
+        ],
+      },
+    ],
+    difficulty: 3,
+    enemyTypes: ["普通", "冲刺", "共生体", "智能", "治疗", "信使", "脚本", "吞噬", "BANNER", "Boss"],
+    recommended: "优先处理共生体与护盾怪，使用高爆或持续伤害塔快速破盾。",
+    setupTimeSeconds: 12,
+    previewPaths: [
+      [
+        { x: 0.1, y: 0.1 },
+        { x: 0.3, y: 0.25 },
+        { x: 0.55, y: 0.45 },
+        { x: 0.72, y: 0.78 },
+      ],
+      [
+        { x: 0.15, y: 0.85 },
+        { x: 0.35, y: 0.7 },
+        { x: 0.6, y: 0.7 },
+        { x: 0.72, y: 0.78 },
+      ],
+      [
+        { x: 0.4, y: 0.0 },
+        { x: 0.45, y: 0.3 },
+        { x: 0.65, y: 0.5 },
+        { x: 0.72, y: 0.78 },
+      ],
+    ],
+  },
+
+  {
+    id: 6,
+    name: "Level 6 · 干擾者風暴",
+    description: "多方向来袭并伴随干扰者光环，学会优先点杀 Jammer。",
+    backgroundClass: "map-theme-neon",
+    mapPreset: "jammer-ring",
+    mapSize: { width: 30, height: 24 },
+    entryPosition: { x: 0.2, y: 0.05 },
+    basePosition: { x: 0.2, y: 0.2 },
+    baseClearRadiusTiles: 2,
+    spawnPoints: [
+      { x: 0.2, y: 0.0 },
+      { x: 0.8, y: 0.15 },
+      { x: 1.0, y: 0.55 },
+      { x: 0.4, y: 1.0 },
+    ],
+    gridObstacles: [
+      { x: 6, y: 2, w: 18, h: 2 },
+      { x: 6, y: 6, w: 18, h: 2 },
+      { x: 6, y: 10, w: 18, h: 2 },
+      { x: 6, y: 14, w: 18, h: 2 },
+      { x: 6, y: 2, w: 2, h: 14 },
+      { x: 22, y: 2, w: 2, h: 14 },
+      { x: 2, y: 10, w: 3, h: 6 },
+      { x: 24, y: 6, w: 3, h: 10 },
+    ],
+    obstacles: [
+      { x: 0.45, y: 0.35, width: 0.04, height: 0.08 },
+      { x: 0.6, y: 0.55, width: 0.05, height: 0.12 },
+      { x: 0.75, y: 0.25, width: 0.04, height: 0.08 },
+    ],
+    initialEnergy: 12,
+    maxEnergy: 32,
+    energyRegenPerSecond: 0.5,
+    randomObstacles: {
+      count: 5,
+      avoidRadiusAroundBase: 0.24,
+      avoidRadiusAroundEntry: 0.12,
+      avoidPathDistance: 0.06,
+      minDistanceBetween: 0.08,
+      maxAttemptsPerObstacle: 18,
+    },
+    waves: [
+      {
+        id: 1,
+        delay: 0,
+        enemies: [
+          { type: "normal", count: 14, interval: 1050 },
+          { type: "sprinter", count: 2, interval: 1300 },
+        ],
+      },
+      {
+        id: 2,
+        delay: 5000,
+        enemies: [
+          { type: "normal", count: 12, interval: 950 },
+          { type: "script", count: 2, interval: 1900 },
+        ],
+      },
+      {
+        id: 3,
+        delay: 4800,
+        enemies: [
+          { type: "smart", count: 3, interval: 1300 },
+          { type: "normal", count: 12, interval: 900 },
+        ],
+      },
+      {
+        id: 4,
+        delay: 4700,
+        enemies: [
+          { type: "devourer", count: 2, interval: 2200 },
+          { type: "sprinter", count: 4, interval: 1100 },
+        ],
+      },
+      {
+        id: 5,
+        delay: 4600,
+        enemies: [
+          { type: "jammer", count: 1, interval: 0 },
+          { type: "script", count: 4, interval: 1700 },
+          { type: "normal", count: 12, interval: 900 },
+        ],
+      },
+      {
+        id: 6,
+        delay: 4600,
+        enemies: [
+          { type: "jammer", count: 2, interval: 3000 },
+          { type: "sprinter", count: 6, interval: 950 },
+          { type: "normal", count: 16, interval: 850 },
+        ],
+      },
+      {
+        id: 7,
+        delay: 4800,
+        enemies: [
+          { type: "jammer", count: 2, interval: 2800 },
+          { type: "script", count: 5, interval: 1500 },
+          { type: "healer", count: 3, interval: 2000 },
+        ],
+      },
+      {
+        id: 8,
+        delay: 4800,
+        enemies: [
+          { type: "symbiote", count: 3, interval: 2000 },
+          { type: "banner", count: 2, interval: 2400 },
+          { type: "smart", count: 4, interval: 1100 },
+        ],
+      },
+      {
+        id: 9,
+        delay: 0,
+        enemies: [
+          { type: "boss", count: 1, interval: 0, hpMultiplier: 1.25, speedMultiplier: 0.8 },
+          { type: "jammer", count: 2 },
+          { type: "script", count: 4 },
+          { type: "sprinter", count: 4 },
+          { type: "healer", count: 3 },
+        ],
+      },
+    ],
+    difficulty: 3,
+    enemyTypes: ["普通", "冲刺", "脚本", "智能", "吞噬", "干扰者", "共生体", "BANNER", "治疗", "Boss"],
+    recommended: "优先点杀干扰者并保持多条退路，避免光环叠加拖慢整条防线。",
+    setupTimeSeconds: 13,
+    previewPaths: [
+      [
+        { x: 0.2, y: 0.0 },
+        { x: 0.22, y: 0.18 },
+        { x: 0.2, y: 0.2 },
+      ],
+      [
+        { x: 0.8, y: 0.15 },
+        { x: 0.55, y: 0.3 },
+        { x: 0.35, y: 0.25 },
+        { x: 0.2, y: 0.2 },
+      ],
+      [
+        { x: 1.0, y: 0.55 },
+        { x: 0.8, y: 0.55 },
+        { x: 0.45, y: 0.4 },
+        { x: 0.2, y: 0.2 },
+      ],
+      [
+        { x: 0.4, y: 1.0 },
+        { x: 0.35, y: 0.7 },
+        { x: 0.25, y: 0.4 },
+        { x: 0.2, y: 0.2 },
+      ],
+    ],
+  },
+
+  {
+    id: 7,
+    name: "Level 7 · 單格哨站",
     description: "只有一个紧凑的哨站，敌人全部是普通怪，考验布塔效率。",
     backgroundClass: "map-theme-oasis",
     mapPreset: "single-lane",
@@ -1129,8 +1530,8 @@ export const LEVELS = [
     ],
   },
   {
-    id: 5,
-    name: "Level 5 · 迷宮試煉",
+    id: 8,
+    name: "Level 8 · 迷宮試煉",
     description: "固定迷宫走廊迫使敌人绕行，善用转角火力覆盖长路径。",
     backgroundClass: "map-theme-labyrinth",
     mapPreset: "labyrinth-core",
@@ -1275,8 +1676,8 @@ export const LEVELS = [
     ],
   },
   {
-    id: 6,
-    name: "Level 6 · 環形風暴",
+    id: 9,
+    name: "Level 9 · 環形風暴",
     description: "基地位于左上角，敌人会从多个方向轮番轰炸，并用治疗拖慢清场节奏。",
     backgroundClass: "map-theme-neon",
     mapPreset: "ring-hold",
