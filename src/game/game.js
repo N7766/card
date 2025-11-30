@@ -1966,11 +1966,13 @@ function renderPercentileBeam(tower, target, gameField, beamState) {
   const dy = target.y - tower.y;
   const length = Math.sqrt(dx * dx + dy * dy);
   const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-  beam.style.left = `${tower.x}px`;
-  beam.style.top = `${tower.y}px`;
+  const towerCenterX = tower.x;
+  const towerCenterY = tower.y;
+  beam.style.left = `${towerCenterX}px`;
+  beam.style.top = `${towerCenterY}px`;
   beam.style.width = `${length}px`;
   beam.style.transformOrigin = "0 50%";
-  beam.style.transform = `translate(-50%, -50%) rotate(${angle}deg)`;
+  beam.style.transform = `translateY(-50%) rotate(${angle}deg)`;
 }
 
 /**

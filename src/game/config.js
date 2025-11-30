@@ -584,7 +584,7 @@ export const waveConfigs = [
 export const LEVELS = [
   {
     id: 1,
-    name: "Level 1 · 入門訓練",
+    name: "Level 1",
     description: "敌人从顶部两侧进攻，尝试用 DIV 塔守住正面。",
     backgroundClass: "map-theme-default",
     mapPreset: "two-corridors",
@@ -699,7 +699,7 @@ export const LEVELS = [
   },
   {
     id: 2,
-    name: "Level 2 · 四面楚歌",
+    name: "Level 2",
     description: "敌人从四个方向进攻，BASE 位于中央，需要全方位防御。",
     backgroundClass: "map-theme-cross",
     mapPreset: "crossroads",
@@ -838,8 +838,8 @@ export const LEVELS = [
   },
   {
     id: 3,
-    name: "Level 3 · 終極挑戰",
-    description: "终极挑战！多段回旋走廊与分层防线同时压迫，合理使用布局卡和样式卡。",
+    name: "Level 3",
+    description: "多段回旋走廊与分层防线同时压迫，合理使用布局卡和样式卡。",
     backgroundClass: "map-theme-dark",
     mapPreset: "maze-core",
     mapSize: { width: 34, height: 26 },
@@ -1007,7 +1007,7 @@ export const LEVELS = [
     ],
     difficulty: 3, // 难度星级
     enemyTypes: ["普通", "冲刺", "BANNER", "SCRIPT", "吞噬", "智能", "治疗", "信使", "共生体", "干扰者", "Boss"], // 敌人类型
-    recommended: "終極回旋長路，多層防線上堆疊範圍塔與單體塔交替施壓", // 推荐玩法提示
+    recommended: "芜湖", // 推荐玩法提示
     setupTimeSeconds: 15, // 布置时间（秒）
     previewPaths: [
       // 蛇形回旋路線示意（左上）
@@ -1056,8 +1056,8 @@ export const LEVELS = [
 
   {
     id: 4,
-    name: "Level 4 · 迷宮練習",
-    description: "迷宫式走廊让敌人多次转向，前几波只有普通兵，适合练习控场。",
+    name: "Level 4",
+    description: "控场",
     backgroundClass: "map-theme-labyrinth",
     mapPreset: "labyrinth-practice",
     mapSize: { width: 26, height: 20 },
@@ -1151,7 +1151,7 @@ export const LEVELS = [
     ],
     difficulty: 2,
     enemyTypes: ["普通", "智能", "冲刺", "吞噬", "BANNER", "SCRIPT", "治疗", "Boss"],
-    recommended: "利用迷宫拐角堆叠范围塔，保持对长路径的持续输出。",
+    recommended: "持续输出。",
     setupTimeSeconds: 11,
     previewPaths: [
       [
@@ -1177,8 +1177,8 @@ export const LEVELS = [
 
   {
     id: 5,
-    name: "Level 5 · 護盾試煉",
-    description: "敌人开始携带护盾与共生体，前几波仍以基础兵种为主，中后期逐渐压迫。",
+    name: "Level 5",
+    description: "敌人开始携带护盾与共生体，中后期逐渐压迫。",
     backgroundClass: "map-theme-oasis",
     mapPreset: "shield-trial",
     mapSize: { width: 28, height: 22 },
@@ -1289,7 +1289,7 @@ export const LEVELS = [
     ],
     difficulty: 3,
     enemyTypes: ["普通", "冲刺", "共生体", "智能", "治疗", "信使", "脚本", "吞噬", "BANNER", "Boss"],
-    recommended: "优先处理共生体与护盾怪，使用高爆或持续伤害塔快速破盾。",
+    recommended: "优先处理共生体与护盾怪",
     setupTimeSeconds: 12,
     previewPaths: [
       [
@@ -1315,8 +1315,8 @@ export const LEVELS = [
 
   {
     id: 6,
-    name: "Level 6 · 干擾者風暴",
-    description: "多方向来袭并伴随干扰者光环，学会优先点杀 Jammer。",
+    name: "Level 6",
+    description: "多方向来袭并伴随干扰者光环",
     backgroundClass: "map-theme-neon",
     mapPreset: "jammer-ring",
     mapSize: { width: 30, height: 24 },
@@ -1469,7 +1469,7 @@ export const LEVELS = [
 
   {
     id: 7,
-    name: "Level 7 · 單格哨站",
+    name: "Level 7",
     description: "只有一个紧凑的哨站，敌人全部是普通怪，考验布塔效率。",
     backgroundClass: "map-theme-oasis",
     mapPreset: "single-lane",
@@ -1531,7 +1531,7 @@ export const LEVELS = [
   },
   {
     id: 8,
-    name: "Level 8 · 迷宮試煉",
+    name: "Level 8",
     description: "固定迷宫走廊迫使敌人绕行，善用转角火力覆盖长路径。",
     backgroundClass: "map-theme-labyrinth",
     mapPreset: "labyrinth-core",
@@ -1677,8 +1677,8 @@ export const LEVELS = [
   },
   {
     id: 9,
-    name: "Level 9 · 環形風暴",
-    description: "基地位于左上角，敌人会从多个方向轮番轰炸，并用治疗拖慢清场节奏。",
+    name: "Level 9",
+    description: "O.o",
     backgroundClass: "map-theme-neon",
     mapPreset: "ring-hold",
     mapSize: { width: 28, height: 22 },

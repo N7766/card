@@ -1,4 +1,4 @@
-:root {
+    :root {
   --top-bar-height: 52px;
   --hud-padding-x: clamp(12px, 2.4vw, 32px);
   --stage-padding: clamp(12px, 2.2vh, 24px);
@@ -87,6 +87,8 @@ body {
 
 .top-hud-section--hp {
   justify-content: flex-start;
+  align-self: start;
+  margin-top: -2px;
 }
 
 .top-hud-section--energy {

@@ -30,7 +30,7 @@ export const CARD_LIBRARY = [
     name: "Rapid Tower",
     type: "tower",
     cost: 4, // 基础塔，费用较低
-    description: "单体高速攻击，伤害较低。适合清理血量较低、移动速度快的小怪。",
+    description: "单体高速攻击，伤害较低。",
     stats: {
       attack: 1, // 攻击力等级 (1-3)
       range: 2, // 射程等级 (1-3)
@@ -47,7 +47,7 @@ export const CARD_LIBRARY = [
     name: "Explosive Tower",
     type: "tower",
     cost: 7, // 中等费用
-    description: "范围伤害塔，攻速极慢，无法攻击贴身敌人。发射爆炸性子弹，对范围内敌人造成伤害。",
+    description: "范围伤害塔，攻速慢，无法攻击贴身敌人。",
     stats: {
       attack: 2,
       range: 2,
@@ -64,7 +64,7 @@ export const CARD_LIBRARY = [
     name: "Sniper Tower",
     type: "tower",
     cost: 10, // 高费用
-    description: "高伤害远程塔，优先攻击血量最高的敌人。攻速很慢，但单次伤害很高，可作为精英怪克星。",
+    description: "高伤害远程塔，优先血量最高。攻速慢，单次伤害高。",
     stats: {
       attack: 3,
       range: 3,

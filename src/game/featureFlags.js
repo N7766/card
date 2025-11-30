@@ -13,8 +13,8 @@ export const featureFlags = {
   newPathfinding: true,
 
   // 新的塔放置规则（"不要堵路"的寻路检查）
-  // 当为false时，使用最初简单的塔放置规则（只要不是障碍/base/出入口就允许放置）
-  newTowerBlockCheck: false,
+  // 开启后会在放置塔前确认入口到基地仍存在通路，避免敌人被迫卡死
+  newTowerBlockCheck: true,
 
   // 多种小怪类型（sprinter/devourer/smart/healer等）
   // 设置为 true 以确保关卡中的敌人按配置出现

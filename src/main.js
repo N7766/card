@@ -104,7 +104,7 @@ function renderLevelSelect() {
   const levelSelect = document.getElementById("level-select");
   if (!levelSelect) return;
 
-  levelSelect.innerHTML = '<p class="level-select__label">選擇關卡：</p>';
+  levelSelect.innerHTML = "";
 
   LEVELS.forEach((level, index) => {
     const btn = document.createElement("button");

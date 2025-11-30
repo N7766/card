@@ -693,11 +693,25 @@ export function updateBasePosition(position) {
  * @param {number} enemiesKilled 已擊殺敵人數
  * @param {number} totalEnemies 總敵人數
  */
+function formatLevelTitle(levelIndex, levelName) {
+  const defaultTitle = `Level ${levelIndex + 1}`;
+  if (!levelName) {
+    return defaultTitle;
+  }
+  const normalized = levelName.trim();
+  const normalizedKey = normalized.replace(/\s+/g, "").toLowerCase();
+  const defaultKey = defaultTitle.replace(/\s+/g, "").toLowerCase();
+  if (normalizedKey === defaultKey) {
+    return normalized;
+  }
+  return `${defaultTitle} · ${normalized}`;
+}
+
 export function updateBattleProgress(levelIndex, levelName, waveIndex, totalWaves, enemiesKilled, totalEnemies) {
   if (!levelText || !waveText || !enemyProgressText) return;
   
   // 更新关卡名
-  levelText.textContent = `Level ${levelIndex + 1} · ${levelName}`;
+  levelText.textContent = formatLevelTitle(levelIndex, levelName);
   
   // 更新波次
   const currentWave = Math.min(waveIndex + 1, totalWaves);
@@ -718,12 +732,12 @@ export function updateLevelInfo(currentIndex, totalLevels, levelName) {
   if (waveText && enemyProgressText) {
     // 只更新关卡名部分，其他信息保持原样
     if (levelText) {
-      levelText.textContent = `Level ${currentIndex + 1} · ${levelName}`;
+      levelText.textContent = formatLevelTitle(currentIndex, levelName);
     }
   } else {
     // 旧版本兼容
     if (levelText) {
-      levelText.textContent = `${currentIndex + 1} / ${totalLevels} · ${levelName}`;
+      levelText.textContent = formatLevelTitle(currentIndex, levelName);
     }
   }
 }
