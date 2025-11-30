@@ -4,7 +4,7 @@
  * 支持多种特殊敌人类型：冲刺型、吞噬型、智能绕路型、治疗型等。
  */
 
-import { ENEMY_CONFIGS, ENEMY_STATS, ENEMY_DAMAGE_TO_BASE, BASE_RADIUS, ENEMIES_CONFIG } from "./config.js";
+import { ENEMY_CONFIGS, ENEMY_STATS, ENEMY_DAMAGE_TO_BASE, BASE_RADIUS, BOSS_CONFIG, getEnemyVisualSpec } from "./config.js";
 import { pixelToGrid, gridToPixel, findPath, GRID_CONFIG } from "./pathfinding.js";
 import { featureFlags } from "./featureFlags.js";
 import { getDebugMode } from "./debug.js";
@@ -64,7 +64,7 @@ function logEnemyCollisionAttempt(enemy, targetRow, targetCol, context) {
  * @property {number} speed 像素/秒（当前实际速度，可能被特殊行为修改）
  * @property {number} hp
  * @property {number} maxHp
- * @property {"normal"|"sprinter"|"devourer"|"smart"|"healer"|"ad"|"banner"|"script"|"fast"|"tank"} enemyType
+ * @property {"normal"|"sprinter"|"devourer"|"smart"|"healer"|"ad"|"banner"|"script"} enemyType
  * @property {boolean} alive
  * @property {number} rewardEnergy 击杀后提供的能量奖励
  * @property {string} [specialTag] 特殊标签（fast, tank等）
@@ -87,6 +87,7 @@ function logEnemyCollisionAttempt(enemy, targetRow, targetCol, context) {
  * 
  * // 通用特殊行为属性
  * @property {number} [armor] 伤害减免（0-1之间）
+ * @property {number} [hitRadius] 命中判定半径
  */
 
 let enemyIdCounter = 1;
@@ -238,27 +239,33 @@ function updateSprinterBehavior(enemy, deltaTime) {
   if (!config || !config.specialBehavior) return;
   
   const behavior = config.specialBehavior;
-  // 获取速度系数（如果存在，否则默认为1.0）
   const speedMultiplier = enemy.speedMultiplier !== undefined ? enemy.speedMultiplier : 1.0;
+  const baseSpeed = behavior.baseSpeed ?? config.baseSpeed ?? enemy.speed;
+  const sprintMultiplier = behavior.sprintSpeedMultiplier ?? 2.5;
+  const sprintDuration = behavior.sprintDuration ?? 800;
+  const sprintCooldown = behavior.sprintCooldown ?? behavior.sprintInterval ?? 3000;
+
+  if (typeof enemy.sprintCooldownTimer !== "number") {
+    enemy.sprintCooldownTimer = 0;
+  }
+  if (typeof enemy.sprintDurationTimer !== "number") {
+    enemy.sprintDurationTimer = 0;
+  }
   
   if (enemy.isSprinting) {
-    // 正在冲刺中
     enemy.sprintDurationTimer -= deltaTime;
     if (enemy.sprintDurationTimer <= 0) {
-      // 冲刺结束，回到基础速度（应用速度系数）
       enemy.isSprinting = false;
-      enemy.speed = behavior.baseSpeed * speedMultiplier;
-      enemy.sprintCooldownTimer = behavior.sprintCooldown;
+      enemy.speed = baseSpeed * speedMultiplier;
+      enemy.sprintCooldownTimer = sprintCooldown;
       enemy.el.classList.remove("enemy-sprinting");
     }
   } else {
-    // 冷却中
     enemy.sprintCooldownTimer -= deltaTime;
     if (enemy.sprintCooldownTimer <= 0) {
-      // 冷却完成，开始冲刺（应用速度系数）
       enemy.isSprinting = true;
-      enemy.speed = behavior.baseSpeed * behavior.sprintSpeedMultiplier * speedMultiplier;
-      enemy.sprintDurationTimer = behavior.sprintDuration;
+      enemy.speed = baseSpeed * sprintMultiplier * speedMultiplier;
+      enemy.sprintDurationTimer = sprintDuration;
       enemy.el.classList.add("enemy-sprinting");
     }
   }
@@ -275,7 +282,9 @@ function checkDevourerConsumption(devourer, allEnemies, deadEnemies) {
   if (!config || !config.specialBehavior) return;
   
   const behavior = config.specialBehavior;
-  if (devourer.devourCount >= behavior.maxDevours) return; // 已达到最大吞噬次数
+  const maxDevours = behavior.maxDevours ?? Infinity;
+  if (devourer.devourCount >= maxDevours) return; // 已达到最大吞噬次数
+  const devourRadius = behavior.devourRadius ?? 0;
   
   // 检查死亡敌人位置
   for (let i = deadEnemies.length - 1; i >= 0; i--) {
@@ -284,22 +293,23 @@ function checkDevourerConsumption(devourer, allEnemies, deadEnemies) {
     const dy = deadPos.y - devourer.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
     
-    if (dist <= behavior.devourRadius) {
+    if (dist <= devourRadius) {
       // 可以吞噬
       devourer.devourCount++;
+
+      const hpGain = behavior.devourHpGain ?? 0;
+      if (hpGain > 0) {
+        devourer.maxHp += hpGain;
+        devourer.hp = Math.min(devourer.maxHp, devourer.hp + hpGain);
+      }
+
+      const speedPenalty = behavior.speedDecayPerDevour ?? behavior.devourSpeedLoss ?? 0;
+      if (speedPenalty > 0) {
+        devourer.speed = Math.max(10, devourer.speed - speedPenalty);
+      }
       
-      // 增加血量
-      devourer.hp = Math.min(devourer.maxHp + devourer.devourCount * behavior.devourHpGain, 
-                            devourer.maxHp + behavior.maxDevours * behavior.devourHpGain);
-      const oldMaxHp = devourer.maxHp;
-      devourer.maxHp = devourer.maxHp + behavior.devourHpGain;
-      devourer.hp = devourer.hp + behavior.devourHpGain;
-      
-      // 降低速度
-      devourer.speed = Math.max(10, devourer.speed - behavior.devourSpeedLoss);
-      
-      // 增加体型
-      devourer.sizeScale = 1.0 + devourer.devourCount * behavior.devourSizeGain;
+      const sizeGain = behavior.devourSizeGain ?? 0;
+      devourer.sizeScale = 1.0 + devourer.devourCount * sizeGain;
       devourer.el.style.transform = `translate(-50%, -50%) scale(${devourer.sizeScale})`;
       devourer.el.classList.add("enemy-devouring");
       
@@ -433,6 +443,206 @@ function updateHealerBehavior(healer, allEnemies, deltaTime) {
 }
 
 /**
+ * Boss 技能相關輔助函數
+ */
+function randomPick(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function triggerBossCastingFx(enemy, duration = 600) {
+  if (!enemy?.el) return;
+  enemy.el.classList.add("enemy-boss-casting");
+  setTimeout(() => {
+    if (enemy.alive) {
+      enemy.el.classList.remove("enemy-boss-casting");
+    }
+  }, duration);
+}
+
+function createBossSummonEffect(gameField, x, y) {
+  if (!gameField) return;
+  const ring = document.createElement("div");
+  ring.className = "boss-summon-effect";
+  ring.style.left = `${x}px`;
+  ring.style.top = `${y}px`;
+  gameField.appendChild(ring);
+  setTimeout(() => ring.remove(), 600);
+}
+
+function isTileOccupiedByEnemy(enemies, row, col) {
+  return enemies.some((enemy) => enemy.alive && enemy.row === row && enemy.col === col);
+}
+
+function getTowerGridPositions(towers) {
+  return towers
+    .filter((tower) => tower.alive)
+    .map((tower) => ({ tower, grid: pixelToGrid(tower.x, tower.y) }));
+}
+
+function collectSummonTiles(enemy, behavior, mapWidth, mapHeight, baseGrid, towers, enemies, isWalkable) {
+  const radius = behavior?.summonRadius ?? 2;
+  const tiles = [];
+  if (radius <= 0) return tiles;
+  const towerGrids = getTowerGridPositions(towers);
+
+  for (let dr = -radius; dr <= radius; dr++) {
+    for (let dc = -radius; dc <= radius; dc++) {
+      const row = enemy.row + dr;
+      const col = enemy.col + dc;
+      if (row < 0 || row >= mapHeight || col < 0 || col >= mapWidth) continue;
+      if (dr === 0 && dc === 0) continue;
+
+      const dist = Math.sqrt(dr * dr + dc * dc);
+      if (dist > radius) continue;
+
+      if (baseGrid && row === baseGrid.row && col === baseGrid.col) continue;
+      if (isTileOccupiedByEnemy(enemies, row, col)) continue;
+
+      const hasTower = towerGrids.some(({ grid }) => grid.row === row && grid.col === col);
+      if (hasTower) continue;
+
+      if (typeof isWalkable === "function" && !isWalkable(row, col)) continue;
+
+      tiles.push({ row, col, dist });
+    }
+  }
+
+  tiles.sort((a, b) => a.dist - b.dist);
+  return tiles;
+}
+
+function attemptBossSummon(enemy, behavior, context, pendingSpawns) {
+  if (!behavior || !context.gameField) return false;
+  const desiredCount = behavior.summonCountEachTime ?? 3;
+  if (desiredCount <= 0) return false;
+
+  const summonTiles = collectSummonTiles(
+    enemy,
+    behavior,
+    context.mapWidth,
+    context.mapHeight,
+    context.baseGrid,
+    context.towers,
+    context.enemies,
+    context.walkableChecker
+  );
+  if (summonTiles.length === 0) {
+    return false;
+  }
+
+  triggerBossCastingFx(enemy);
+  let spawned = 0;
+  for (const tile of summonTiles) {
+    if (spawned >= desiredCount) break;
+    const type = randomPick(behavior.summonTypes) || "normal";
+    const newEnemy = spawnEnemy(
+      context.gameField,
+      type,
+      context.spawnPoints,
+      null,
+      context.basePosition,
+      behavior.summonHpMultiplier ?? 1,
+      behavior.summonSpeedMultiplier ?? 1,
+      {
+        forcedGridPosition: tile,
+        spawnedByBoss: true,
+      }
+    );
+    if (newEnemy) {
+      newEnemy.spawnedByBoss = true;
+      newEnemy.needsPathRecalculation = true;
+      pendingSpawns.push(newEnemy);
+      const pixelPos = gridToPixel(tile.row, tile.col);
+      createBossSummonEffect(context.gameField, pixelPos.x, pixelPos.y);
+      spawned++;
+    }
+  }
+
+  return spawned > 0;
+}
+
+function scheduleTowerDestruction(tower, context, behavior) {
+  if (!tower || !tower.alive || tower.pendingBossDestroy) return false;
+  tower.pendingBossDestroy = true;
+  const warningDuration = behavior?.towerDestroyWarningDuration ?? 800;
+
+  if (context.gameField) {
+    const warning = document.createElement("div");
+    warning.className = "boss-tower-warning";
+    warning.style.left = `${tower.x}px`;
+    warning.style.top = `${tower.y}px`;
+    context.gameField.appendChild(warning);
+    setTimeout(() => warning.remove(), warningDuration + 200);
+  }
+
+  setTimeout(() => {
+    if (!tower.alive) {
+      tower.pendingBossDestroy = false;
+      return;
+    }
+    tower.alive = false;
+    tower.el.classList.add("tower-destroyed");
+    tower.el.style.opacity = "0";
+    setTimeout(() => {
+      tower.el.remove();
+    }, 400);
+    tower.pendingBossDestroy = false;
+    if (typeof context.onTowerDestroyed === "function") {
+      context.onTowerDestroyed(tower);
+    }
+  }, warningDuration);
+
+  return true;
+}
+
+function attemptBossTowerDestruction(enemy, behavior, context) {
+  if (!behavior || !context || !Array.isArray(context.towers)) return false;
+  const range = behavior.towerDestroyRange ?? 3;
+  const maxCount = behavior.towerDestroyCount ?? 1;
+  const targets = [];
+
+  for (const tower of context.towers) {
+    if (!tower.alive) continue;
+    const gridPos = pixelToGrid(tower.x, tower.y);
+    const dr = gridPos.row - enemy.row;
+    const dc = gridPos.col - enemy.col;
+    const dist = Math.sqrt(dr * dr + dc * dc);
+    if (dist <= range) {
+      targets.push({ tower, priority: tower.damage || 0, dist });
+    }
+  }
+
+  if (targets.length === 0) return false;
+
+  targets.sort((a, b) => {
+    if (b.priority === a.priority) {
+      return a.dist - b.dist;
+    }
+    return b.priority - a.priority;
+  });
+
+  triggerBossCastingFx(enemy, 800);
+  let destroyed = 0;
+  for (const target of targets) {
+    if (destroyed >= maxCount) break;
+    const success = scheduleTowerDestruction(target.tower, context, behavior);
+    if (success) {
+      destroyed++;
+    }
+  }
+  return destroyed > 0;
+}
+
+function notifyBossDefeated(options, enemy) {
+  if (!enemy?.isBoss || enemy._bossDefeatNotified) return;
+  enemy._bossDefeatNotified = true;
+  if (options && typeof options.onBossDefeated === "function") {
+    options.onBossDefeated(enemy);
+  }
+}
+
+/**
  * 在戰場邊界隨機生成一個敵人，並向基地移動。
  * 使用网格坐标系统，初始位置对齐到网格。
  * @param {HTMLElement} gameField
@@ -442,12 +652,22 @@ function updateHealerBehavior(healer, allEnemies, deltaTime) {
  * @param {{x: number, y: number}} [basePosition] 基地位置（0~1 相對座標）
  * @param {number} [hpMultiplier=1.0] 血量係數，用於波次難度調整
  * @param {number} [speedMultiplier=1.0] 速度係數，用於波次難度調整
+ * @param {{ forcedGridPosition?: {row:number,col:number}, forcedPixelPosition?: {x:number,y:number}, spawnedByBoss?: boolean }} [options]
  * @returns {Enemy}
  */
-export function spawnEnemy(gameField, type, spawnPoints = null, previewPaths = null, basePosition = null, hpMultiplier = 1.0, speedMultiplier = 1.0) {
+export function spawnEnemy(
+  gameField,
+  type,
+  spawnPoints = null,
+  previewPaths = null,
+  basePosition = null,
+  hpMultiplier = 1.0,
+  speedMultiplier = 1.0,
+  options = null
+) {
   // 【兜底模式】如果多种敌人类型功能关闭，强制使用普通敌人
   let actualType = type;
-  if (!featureFlags.multiEnemyTypes && type !== "normal") {
+  if (!featureFlags.multiEnemyTypes && type !== "normal" && type !== "boss") {
     console.log(`[enemy.js] 多种敌人类型功能已关闭，将 ${type} 转换为 normal`);
     actualType = "normal";
   }
@@ -455,6 +675,7 @@ export function spawnEnemy(gameField, type, spawnPoints = null, previewPaths = n
   // 优先使用新配置系统，如果不存在则使用旧系统（兼容性）
   const config = ENEMY_CONFIGS[actualType] || null;
   const stats = config ? null : ENEMY_STATS[actualType];
+  const visualSpec = getEnemyVisualSpec(actualType);
   
   if (!config && !stats) {
     console.warn(`[enemy.js] 未知的敌人类型: ${actualType}，使用默认配置`);
@@ -489,11 +710,25 @@ export function spawnEnemy(gameField, type, spawnPoints = null, previewPaths = n
     }
   }
   
-  // 转换为网格坐标并对齐到网格中心
-  const grid = pixelToGrid(pixelX, pixelY);
-  const alignedPixel = gridToPixel(grid.row, grid.col);
-  pixelX = alignedPixel.x;
-  pixelY = alignedPixel.y;
+  // 转换为网格坐标并对齐到网格中心（允许外部覆写出生位置）
+  let grid = pixelToGrid(pixelX, pixelY);
+  if (options?.forcedGridPosition) {
+    grid = {
+      row: options.forcedGridPosition.row,
+      col: options.forcedGridPosition.col,
+    };
+    const forcedPixel = gridToPixel(grid.row, grid.col);
+    pixelX = forcedPixel.x;
+    pixelY = forcedPixel.y;
+  } else if (options?.forcedPixelPosition) {
+    pixelX = options.forcedPixelPosition.x;
+    pixelY = options.forcedPixelPosition.y;
+    grid = pixelToGrid(pixelX, pixelY);
+  } else {
+    const alignedPixel = gridToPixel(grid.row, grid.col);
+    pixelX = alignedPixel.x;
+    pixelY = alignedPixel.y;
+  }
 
   const id = `enemy-${enemyIdCounter++}`;
 
@@ -525,8 +760,16 @@ export function spawnEnemy(gameField, type, spawnPoints = null, previewPaths = n
   } else if (actualType === "script") {
     el.classList.add("enemy-script");
     el.textContent = "SCRIPT";
+  } else if (actualType === "boss") {
+    el.classList.add("enemy-boss");
+    el.textContent = "BOSS";
   }
   el.dataset.enemyId = id;
+  if (Number.isFinite(visualSpec?.highlightRadius)) {
+    el.style.setProperty("--enemy-highlight-radius", `${visualSpec.highlightRadius}px`);
+  } else {
+    el.style.removeProperty("--enemy-highlight-radius");
+  }
 
   // 血量條
   const hpBar = document.createElement("div");
@@ -543,7 +786,7 @@ export function spawnEnemy(gameField, type, spawnPoints = null, previewPaths = n
 
   // 使用新配置系统或旧系统
   let baseMaxHp = config ? config.maxHp : stats.hp;
-  let baseMoveSpeed = config ? config.moveSpeed : stats.speed;
+  let baseMoveSpeed = config ? (config.baseSpeed ?? config.moveSpeed) : stats.speed;
   const armor = config ? (config.armor || 0) : 0;
   const specialBehavior = config ? config.specialBehavior : null;
   
@@ -569,8 +812,17 @@ export function spawnEnemy(gameField, type, spawnPoints = null, previewPaths = n
     lastPathUpdateTime: 0,
     needsPathRecalculation: false, // 是否需要强制重新计算路径
     armor: armor,
+    rewardEnergy: config && typeof config.rewardEnergy === "number" ? config.rewardEnergy : 1,
+    isBoss: actualType === "boss",
+    displayName: (config && config.displayName) || actualType.toUpperCase(),
+    hitRadius: visualSpec?.hitRadius ?? 20,
   };
   
+  if (options?.spawnedByBoss) {
+    enemy.spawnedByBoss = true;
+    el.classList.add("enemy-summoned-by-boss");
+  }
+
   // 【新逻辑】根据敌人类型初始化特殊行为属性（通过featureFlags.multiEnemyTypes控制）
   if (featureFlags.multiEnemyTypes) {
     if (actualType === "sprinter" && specialBehavior) {
@@ -592,6 +844,15 @@ export function spawnEnemy(gameField, type, spawnPoints = null, previewPaths = n
       // 添加治疗型标记（用于后续渲染治疗范围）
       el.classList.add("enemy-healer-type");
     }
+  }
+
+  if (actualType === "boss") {
+    const behavior = config?.specialBehavior || BOSS_CONFIG.specialBehavior || {};
+    enemy.bossBehavior = behavior;
+    const summonInterval = behavior.summonInterval ?? 5000;
+    const destroyInterval = behavior.towerDestroyInterval ?? 8000;
+    enemy.summonCooldownTimer = summonInterval * (0.5 + Math.random() * 0.5);
+    enemy.towerDestroyCooldownTimer = destroyInterval * (0.5 + Math.random() * 0.5);
   }
 
   return enemy;
@@ -713,11 +974,26 @@ export function updateEnemies(
   mapWidth = 0,
   mapHeight = 0,
   baseGrid = null,
-  towers = []
+  towers = [],
+  extraOptions = {}
 ) {
   const dtSeconds = deltaTime / 1000;
   const epsilon = 2; // 到達目標點的距離閾值（像素）
   const PATH_UPDATE_INTERVAL = 200; // 路径更新间隔（毫秒），用于性能优化
+  const bossOptions = extraOptions || {};
+  const pendingSummons = [];
+  const bossContext = {
+    gameField: bossOptions.gameField || null,
+    spawnPoints: bossOptions.spawnPoints || null,
+    basePosition: bossOptions.basePosition || null,
+    mapWidth,
+    mapHeight,
+    baseGrid,
+    towers,
+    enemies,
+    walkableChecker: isWalkable,
+    onTowerDestroyed: bossOptions.onTowerDestroyed,
+  };
 
   for (const enemy of enemies) {
     if (!enemy.alive) continue;
@@ -733,6 +1009,29 @@ export function updateEnemies(
       }
     }
 
+    if (enemy.isBoss) {
+      // Boss 主動技能：同時管理召喚冷卻與拆塔冷卻，確保玩法節奏可控
+      const behavior = enemy.bossBehavior || BOSS_CONFIG.specialBehavior || {};
+      const summonInterval = behavior.summonInterval ?? 5000;
+      const summonRetry = behavior.summonRetryDelay ?? 1500;
+      const destroyInterval = behavior.towerDestroyInterval ?? 8000;
+      const destroyRetry = behavior.towerDestroyRetryDelay ?? 2000;
+
+      enemy.summonCooldownTimer =
+        (typeof enemy.summonCooldownTimer === "number" ? enemy.summonCooldownTimer : summonInterval) - deltaTime;
+      if (enemy.summonCooldownTimer <= 0) {
+        const summoned = attemptBossSummon(enemy, behavior, bossContext, pendingSummons);
+        enemy.summonCooldownTimer = summoned ? summonInterval : summonRetry;
+      }
+
+      enemy.towerDestroyCooldownTimer =
+        (typeof enemy.towerDestroyCooldownTimer === "number" ? enemy.towerDestroyCooldownTimer : destroyInterval) - deltaTime;
+      if (enemy.towerDestroyCooldownTimer <= 0) {
+        const destroyedTower = attemptBossTowerDestruction(enemy, behavior, bossContext);
+        enemy.towerDestroyCooldownTimer = destroyedTower ? destroyInterval : destroyRetry;
+      }
+    }
+
     // 更新当前网格坐标
     const currentGrid = pixelToGrid(enemy.x, enemy.y);
     enemy.row = currentGrid.row;
@@ -744,6 +1043,9 @@ export function updateEnemies(
       enemy.el.remove();
       const damageToBase = ENEMY_DAMAGE_TO_BASE[enemy.enemyType] || 1;
       onHitBase(enemy, damageToBase);
+      if (enemy.isBoss) {
+        notifyBossDefeated(bossOptions, enemy);
+      }
       continue;
     }
 
@@ -756,6 +1058,9 @@ export function updateEnemies(
       enemy.el.remove();
       const damageToBase = ENEMY_DAMAGE_TO_BASE[enemy.enemyType] || 1;
       onHitBase(enemy, damageToBase);
+      if (enemy.isBoss) {
+        notifyBossDefeated(bossOptions, enemy);
+      }
       continue;
     }
 
@@ -966,10 +1271,17 @@ export function updateEnemies(
       hpBar.style.transform = `scaleX(${ratio})`;
     }
 
+    if (enemy.isBoss && typeof bossOptions.onBossHpChanged === "function") {
+      bossOptions.onBossHpChanged(enemy.hp, enemy.maxHp, enemy);
+    }
+
     // 如果血量歸零，則移除敵人（被擊殺）
     if (enemy.hp <= 0 && enemy.alive) {
       // 记录死亡位置（供吞噬型敌人使用）
       recordEnemyDeath(enemy);
+      if (enemy.isBoss) {
+        notifyBossDefeated(bossOptions, enemy);
+      }
       
       enemy.alive = false;
       enemy.el.remove();
@@ -977,6 +1289,13 @@ export function updateEnemies(
       if (onEnemyKilled) {
         onEnemyKilled(enemy);
       }
+    }
+  }
+
+  if (pendingSummons.length > 0) {
+    enemies.push(...pendingSummons);
+    if (typeof bossOptions.onExtraEnemySpawned === "function") {
+      bossOptions.onExtraEnemySpawned(pendingSummons);
     }
   }
 }

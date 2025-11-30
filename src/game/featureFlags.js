@@ -17,8 +17,8 @@ export const featureFlags = {
   newTowerBlockCheck: false,
 
   // 多种小怪类型（sprinter/devourer/smart/healer等）
-  // 当为false时，只生成原来的普通小怪
-  multiEnemyTypes: false,
+  // 设置为 true 以确保关卡中的敌人按配置出现
+  multiEnemyTypes: true,
 
   // 调试模式中的路径可视化、高亮地图等调试功能
   // 当为false时，不渲染任何调试线条和额外图层

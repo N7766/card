@@ -47,14 +47,22 @@ export const ITEM_TYPES = {
   },
   blockItem: {
     id: "blockItem",
-    name: "临时障碍",
+    name: "永久障碍",
     icon: "🛡️",
-    description: "在指定位置生成临时障碍物，持续10秒，影响敌人寻路",
+    description: "在指定位置放下一块永久障碍，整关内不会消失",
     targetRequired: true,
     onPickup: null,
-    onUse: (gameState, targetX, targetY, gameField) => {
-      // 在目标位置生成临时障碍物
-      return createTemporaryBlock(gameField, targetX, targetY, 10000); // 10秒
+    onUse: (gameState, targetX, targetY) => {
+      if (!gameState || typeof gameState.addPermanentObstacle !== "function") {
+        return { success: false, reason: "当前关卡不支持障碍放置" };
+      }
+      return gameState.addPermanentObstacle({
+        x: targetX,
+        y: targetY,
+        width: 48,
+        height: 48,
+        source: "item",
+      });
     },
   },
   bombItem: {
@@ -84,53 +92,6 @@ export const ITEM_TYPES = {
     },
   },
 };
-
-/**
- * 创建临时障碍物
- * @param {HTMLElement} gameField 战场DOM
- * @param {number} x 位置x（像素）
- * @param {number} y 位置y（像素）
- * @param {number} duration 持续时间（毫秒）
- * @returns {Object} 障碍物对象
- */
-function createTemporaryBlock(gameField, x, y, duration) {
-  const block = document.createElement("div");
-  block.className = "temporary-block obstacle";
-  block.style.position = "absolute";
-  block.style.left = `${x}px`;
-  block.style.top = `${y}px`;
-  block.style.width = "40px";
-  block.style.height = "40px";
-  block.style.transform = "translate(-50%, -50%)";
-  block.style.borderRadius = "6px";
-  block.style.background = "linear-gradient(145deg, #424242, #212121)";
-  block.style.border = "2px solid rgba(255, 200, 0, 0.4)"; // 黄色边框区分临时障碍物
-  block.style.boxShadow = "0 4px 12px rgba(0, 0, 0, 0.5), 0 0 8px rgba(255, 200, 0, 0.3)";
-  block.style.zIndex = "10";
-  block.style.pointerEvents = "none";
-  
-  gameField.appendChild(block);
-  
-  // 持续时间后移除
-  setTimeout(() => {
-    if (block.parentElement) {
-      block.parentElement.removeChild(block);
-    }
-  }, duration);
-  
-  return {
-    element: block,
-    x,
-    y,
-    width: 40,
-    height: 40,
-    remove: () => {
-      if (block.parentElement) {
-        block.parentElement.removeChild(block);
-      }
-    },
-  };
-}
 
 /**
  * 触发炸弹爆炸
@@ -397,12 +358,18 @@ export class ItemManager {
     const { itemType, itemIndex } = this.usingItem;
     
     // 执行使用效果
+    let useResult = null;
     if (itemType.onUse) {
-      const result = itemType.onUse(this.gameState, x, y, this.gameField, enemies);
+      useResult = itemType.onUse(this.gameState, x, y, this.gameField, enemies);
+      
+      if (useResult && useResult.success === false) {
+        this.showMessage(useResult.reason || `无法使用${itemType.name}`, "warning");
+        return;
+      }
       
       // 如果是减速区域，保存到列表
-      if (itemType.id === "slowField" && result) {
-        this.slowFields.push(result);
+      if (itemType.id === "slowField" && useResult) {
+        this.slowFields.push(useResult);
       }
       
       this.showMessage(`使用${itemType.name}成功！`, "success");

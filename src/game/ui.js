@@ -20,13 +20,15 @@ const hpText = /** @type {HTMLElement} */ (document.getElementById("hp-text"));
 const energyBar = /** @type {HTMLElement} */ (document.getElementById("energy-bar"));
 const energyText = /** @type {HTMLElement} */ (document.getElementById("energy-text"));
 const waveText = /** @type {HTMLElement} */ (document.getElementById("wave-text"));
-const bestRecordText = /** @type {HTMLElement} */ (
-  document.getElementById("best-record-text")
-);
+const bestRecordText = document.getElementById("best-record-text");
 const levelText = /** @type {HTMLElement} */ (document.getElementById("level-text"));
 const enemyProgressText = /** @type {HTMLElement} */ (
   document.getElementById("enemy-progress-text")
 );
+const bossStatusBar = /** @type {HTMLElement} */ (document.getElementById("boss-status-bar"));
+const bossNameLabel = /** @type {HTMLElement} */ (document.getElementById("boss-name-label"));
+const bossHpFill = /** @type {HTMLElement} */ (document.getElementById("boss-hp-fill"));
+const bossHpText = /** @type {HTMLElement} */ (document.getElementById("boss-hp-text"));
 
 const handCardsContainer = /** @type {HTMLElement} */ (
   document.getElementById("hand-cards")
@@ -90,6 +92,7 @@ export const uiElements = {
   btnRestartDefeat,
   victoryBestRecord,
   defeatBestRecord,
+  bossStatusBar,
 };
 
 /**
@@ -196,6 +199,7 @@ export function updateWave(waveIndex, totalWaves) {
  * @param {number} bestWave
  */
 export function updateBestRecord(bestWave) {
+  if (!bestRecordText) return;
   bestRecordText.textContent = bestWave > 0 ? String(bestWave) : "-";
 }
 
@@ -446,7 +450,8 @@ export function hideResultOverlays() {
  * @param {boolean} paused
  */
 export function updatePauseButton(paused) {
-  btnPause.textContent = paused ? "繼續" : "暫停";
+  btnPause.textContent = paused ? "继续" : "暂停";
+  btnPause.dataset.state = paused ? "paused" : "running";
 }
 
 /**
@@ -473,12 +478,16 @@ let waveToastEl =
 let waveToastTimer = null;
 
 function ensureWaveToastEl() {
-  if (!gameRoot) return;
   if (!waveToastEl) {
+    waveToastEl = /** @type {HTMLElement | null} */ (document.getElementById("wave-toast"));
+  }
+  if (!waveToastEl) {
+    const host = document.getElementById("top-stage-info") || gameRoot;
+    if (!host) return;
     waveToastEl = document.createElement("div");
     waveToastEl.id = "wave-toast";
     waveToastEl.className = "wave-toast";
-    gameRoot.appendChild(waveToastEl);
+    host.appendChild(waveToastEl);
   }
 }
 
@@ -589,6 +598,48 @@ export function updateEnemyProgress(killed, total) {
 }
 
 /**
+ * 显示 Boss 血条并初始化数值。
+ * @param {string} name Boss 名称
+ * @param {number} hp 当前生命
+ * @param {number} maxHp 最大生命
+ */
+export function showBossStatusBar(name = "BOSS", hp = 0, maxHp = 0) {
+  if (!bossStatusBar) return;
+  bossStatusBar.classList.remove("hidden");
+  if (bossNameLabel) {
+    bossNameLabel.textContent = name;
+  }
+  updateBossHpBar(hp, maxHp);
+}
+
+/**
+ * 更新 Boss 血量显示。
+ * @param {number} hp
+ * @param {number} maxHp
+ */
+export function updateBossHpBar(hp, maxHp) {
+  if (!bossStatusBar) return;
+  const rawMax = Number.isFinite(maxHp) ? maxHp : 0;
+  const ratio = rawMax > 0 ? Math.max(0, Math.min(1, hp / rawMax)) : 0;
+  if (bossHpFill) {
+    bossHpFill.style.transform = `scaleX(${ratio})`;
+  }
+  if (bossHpText) {
+    const safeHp = Math.max(0, Math.floor(hp));
+    const displayMax = Math.max(0, Math.floor(rawMax));
+    bossHpText.textContent = `${safeHp} / ${displayMax}`;
+  }
+}
+
+/**
+ * 隐藏 Boss 血条。
+ */
+export function hideBossStatusBar() {
+  if (!bossStatusBar) return;
+  bossStatusBar.classList.add("hidden");
+}
+
+/**
  * 顯示關卡完成界面。
  * @param {string} levelName 關卡名稱
  * @param {number} killed 擊殺數
@@ -641,6 +692,9 @@ export function showLevelIntroBubble(levelName, prepTimeSeconds, description, on
   
   // 设置标题
   titleEl.textContent = levelName;
+  closeBtn.textContent = "立即开战";
+  closeBtn.disabled = false;
+  closeBtn.classList.remove("btn-disabled");
   
   // 设置难度星级
   if (difficultyEl) {
@@ -676,7 +730,7 @@ export function showLevelIntroBubble(levelName, prepTimeSeconds, description, on
   }
   
   // 清除之前的关闭类和倒计时
-  bubble.classList.remove("hidden", "bubble--closing");
+  bubble.classList.remove("hidden", "prep-banner--closing");
   
   // 倒计时相关变量
   let countdown = prepTimeSeconds;
@@ -726,12 +780,12 @@ export function showLevelIntroBubble(levelName, prepTimeSeconds, description, on
     }
     
     // 添加关闭动画
-    bubble.classList.add("bubble--closing");
+    bubble.classList.add("prep-banner--closing");
     
     // 动画结束后隐藏
     setTimeout(() => {
       bubble.classList.add("hidden");
-      bubble.classList.remove("bubble--closing");
+      bubble.classList.remove("prep-banner--closing");
       if (onClose) onClose();
     }, 300);
     

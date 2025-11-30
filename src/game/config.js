@@ -72,50 +72,54 @@ export const ENEMY_HEIGHT = 30;
 export const BASE_MOVE_SPEED = 30; // 基础移动速度（像素/秒），全局下调
 
 /**
- * 敌人类型配置
- * 使用统一的配置结构，便于扩展和维护
+ * 统一的敌人类型常量，确保全局命名一致
  */
-export const ENEMIES_CONFIG = {
-  fast: {
-    id: "fast",
-    name: "快速敌人",
-    maxHp: 25,
-    moveSpeed: BASE_MOVE_SPEED * 1.5, // 比普通怪快50%
-    rewardEnergy: 1,
-    specialTag: "fast",
-    armor: 0,
-    damageToBase: 1,
-    specialBehavior: null,
-  },
-  normal: {
-    id: "normal",
-    name: "普通敌人",
-    maxHp: 40,
-    moveSpeed: BASE_MOVE_SPEED, // 标准速度
-    rewardEnergy: 2,
-    specialTag: null,
-    armor: 0,
-    damageToBase: 1,
-    specialBehavior: null,
-  },
-  tank: {
-    id: "tank",
-    name: "坦克敌人",
-    maxHp: 120,
-    moveSpeed: BASE_MOVE_SPEED * 0.7, // 比普通怪慢30%
-    rewardEnergy: 5,
-    specialTag: "tank",
-    armor: 0.1, // 10%伤害减免
-    damageToBase: 2,
-    specialBehavior: null,
+export const ENEMY_TYPES = Object.freeze({
+  NORMAL: "normal",
+  SPRINTER: "sprinter",
+  DEVOURER: "devourer",
+  SMART: "smart",
+  HEALER: "healer",
+  AD: "ad",
+  BANNER: "banner",
+  SCRIPT: "script",
+  BOSS: "boss",
+});
+
+/**
+ * Boss 专用基础配置
+ * 单独抽出方便在敌人模块与 UI 中引用，避免散落的常量。
+ */
+const BASE_BOSS_CONFIG = {
+  type: "boss",
+  displayName: "語法霸主",
+  maxHp: 5000,
+  baseSpeed: 24,
+  moveSpeed: 24,
+  armor: 0.2,
+  damageToBase: 10,
+  rewardEnergy: 30,
+  specialBehavior: {
+    role: "boss",
+    summonInterval: 5000,
+    summonCountEachTime: 5,
+    summonTypes: ["normal", "sprinter"],
+    summonRadius: 2,
+    summonRetryDelay: 1500,
+    summonHpMultiplier: 1,
+    summonSpeedMultiplier: 1,
+    towerDestroyInterval: 8000,
+    towerDestroyRange: 3,
+    towerDestroyCount: 1,
+    towerDestroyRetryDelay: 2000,
+    towerDestroyWarningDuration: 800,
   },
 };
 
 /**
- * 敌人基礎屬性配置（保留舊接口以兼容）
- * @deprecated 使用 ENEMIES_CONFIG 代替
+ * 敌人基礎屬性配置
  * 
- * 统一的敌人配置系统，包含所有敌人类型的基础属性和特殊行为参数
+ * 本配置为游戏内实际使用的权威数据源，包含所有敌人类型的基础属性和特殊行为参数
  * 
  * 敵人類型說明：
  * - normal: 普通移動型，平衡的血量和速度
@@ -132,82 +136,106 @@ export const ENEMIES_CONFIG = {
  *   - healer: { healInterval, healAmount, healRadius }
  */
 export const ENEMY_CONFIGS = {
-  normal: {
+  [ENEMY_TYPES.NORMAL]: {
     maxHp: 40,
-    moveSpeed: 40, // 像素/秒（原80的50%）
-    armor: 0, // 傷害減免（0-1之間的小數，例如0.1表示減免10%傷害）
-    damageToBase: 1,
-    specialBehavior: null, // 普通怪無特殊行為
-  },
-  sprinter: {
-    maxHp: 35,
-    moveSpeed: 35, // 平時速度（原70的50%）
+    baseSpeed: 40,
+    moveSpeed: 40,
     armor: 0,
     damageToBase: 1,
-    specialBehavior: {
-      sprintCooldown: 4000, // 冲刺冷却時間（毫秒）
-      sprintDuration: 1500, // 冲刺持續時間（毫秒）
-      sprintSpeedMultiplier: 2.5, // 冲刺時速度倍率
-      baseSpeed: 35, // 基礎速度（平時，原70的50%）
-    },
-  },
-  devourer: {
-    maxHp: 60,
-    moveSpeed: 28, // 初始中等速度（原55的50%）
-    armor: 0,
-    damageToBase: 2,
-    specialBehavior: {
-      devourRadius: 50, // 吞噬感知範圍（像素）
-      devourHpGain: 30, // 每次吞噬恢復的血量
-      devourSpeedLoss: 5, // 每次吞噬速度減少（像素/秒）
-      devourSizeGain: 0.15, // 每次吞噬體型增加比例（0.15 = 15%）
-      maxDevours: 5, // 最大吞噬次數（防止無限增長）
-    },
-  },
-  smart: {
-    maxHp: 50,
-    moveSpeed: 33, // 中等速度（原65的50%）
-    armor: 0,
-    damageToBase: 2,
-    specialBehavior: {
-      dangerWeight: 8, // 危險度權重（格子附近每座塔增加的成本）
-      dangerRadius: 2, // 危險度計算半徑（格子數，檢查周圍NxN區域）
-    },
-  },
-  healer: {
-    maxHp: 30, // 低血量，很脆
-    moveSpeed: 30, // （原60的50%）
-    armor: 0,
-    damageToBase: 1,
-    specialBehavior: {
-      healInterval: 3000, // 治療間隔（毫秒）
-      healAmount: 15, // 每次治療量
-      healRadius: 80, // 治療範圍（像素）
-    },
-  },
-  // 保留舊類型作為兼容（映射到新系統）
-  ad: {
-    maxHp: 26,
-    moveSpeed: 48, // （原95的50%）
-    armor: 0,
-    damageToBase: 1,
+    rewardEnergy: 2,
     specialBehavior: null,
   },
-  banner: {
+  [ENEMY_TYPES.SPRINTER]: {
+    maxHp: 35,
+    baseSpeed: 35,
+    moveSpeed: 35,
+    armor: 0,
+    damageToBase: 1,
+    rewardEnergy: 3,
+    specialBehavior: {
+      baseSpeed: 35,
+      sprintCooldown: 3500,
+      sprintInterval: 3500,
+      sprintDuration: 900,
+      sprintSpeedMultiplier: 2.5,
+    },
+  },
+  [ENEMY_TYPES.DEVOURER]: {
+    maxHp: 60,
+    baseSpeed: 28,
+    moveSpeed: 28,
+    armor: 0,
+    damageToBase: 2,
+    rewardEnergy: 5,
+    specialBehavior: {
+      devourRadius: 50,
+      devourHpGain: 30,
+      speedDecayPerDevour: 5,
+      devourSpeedLoss: 5,
+      devourSizeGain: 0.15,
+      maxDevours: 5,
+    },
+  },
+  [ENEMY_TYPES.SMART]: {
+    maxHp: 50,
+    baseSpeed: 33,
+    moveSpeed: 33,
+    armor: 0,
+    damageToBase: 2,
+    rewardEnergy: 4,
+    specialBehavior: {
+      dangerWeight: 8,
+      dangerRadius: 2,
+    },
+  },
+  [ENEMY_TYPES.HEALER]: {
+    maxHp: 30,
+    baseSpeed: 30,
+    moveSpeed: 30,
+    armor: 0,
+    damageToBase: 1,
+    rewardEnergy: 4,
+    specialBehavior: {
+      healInterval: 3000,
+      healAmount: 15,
+      healRadius: 80,
+    },
+    visual: {
+      highlightRadius: 72,
+      hitRadius: 20,
+    },
+  },
+  [ENEMY_TYPES.AD]: {
+    maxHp: 26,
+    baseSpeed: 48,
+    moveSpeed: 48,
+    armor: 0,
+    damageToBase: 1,
+    rewardEnergy: 1,
+    specialBehavior: null,
+  },
+  [ENEMY_TYPES.BANNER]: {
     maxHp: 140,
-    moveSpeed: 23, // （原45的50%）
+    baseSpeed: 23,
+    moveSpeed: 23,
     armor: 0,
     damageToBase: 3,
+    rewardEnergy: 6,
     specialBehavior: null,
   },
-  script: {
+  [ENEMY_TYPES.SCRIPT]: {
     maxHp: 70,
-    moveSpeed: 35, // （原70的50%）
+    baseSpeed: 35,
+    moveSpeed: 35,
     armor: 0,
     damageToBase: 2,
+    rewardEnergy: 3,
     specialBehavior: null,
   },
+  [ENEMY_TYPES.BOSS]: BASE_BOSS_CONFIG,
 };
+
+export const BOSS_CONFIG = BASE_BOSS_CONFIG;
 
 /**
  * 敌人基礎屬性配置（保留舊接口以兼容現有代碼）
@@ -215,15 +243,15 @@ export const ENEMY_CONFIGS = {
  */
 export const ENEMY_STATS = {
   ad: {
-    speed: ENEMY_CONFIGS.ad.moveSpeed,
+    speed: ENEMY_CONFIGS.ad.baseSpeed ?? ENEMY_CONFIGS.ad.moveSpeed,
     hp: ENEMY_CONFIGS.ad.maxHp,
   },
   banner: {
-    speed: ENEMY_CONFIGS.banner.moveSpeed,
+    speed: ENEMY_CONFIGS.banner.baseSpeed ?? ENEMY_CONFIGS.banner.moveSpeed,
     hp: ENEMY_CONFIGS.banner.maxHp,
   },
   script: {
-    speed: ENEMY_CONFIGS.script.moveSpeed,
+    speed: ENEMY_CONFIGS.script.baseSpeed ?? ENEMY_CONFIGS.script.moveSpeed,
     hp: ENEMY_CONFIGS.script.maxHp,
   },
 };
@@ -312,20 +340,29 @@ export const TOWERS_CONFIG = {
 /**
  * 單位敵人到達基地時扣除的基地生命
  */
-export const ENEMY_DAMAGE_TO_BASE = {
-  // 新敌人类型
-  fast: ENEMIES_CONFIG.fast.damageToBase,
-  normal: ENEMIES_CONFIG.normal.damageToBase,
-  tank: ENEMIES_CONFIG.tank.damageToBase,
-  // 旧类型兼容
-  sprinter: ENEMY_CONFIGS.sprinter.damageToBase,
-  devourer: ENEMY_CONFIGS.devourer.damageToBase,
-  smart: ENEMY_CONFIGS.smart.damageToBase,
-  healer: ENEMY_CONFIGS.healer.damageToBase,
-  ad: ENEMY_CONFIGS.ad.damageToBase,
-  banner: ENEMY_CONFIGS.banner.damageToBase,
-  script: ENEMY_CONFIGS.script.damageToBase,
-};
+export const ENEMY_DAMAGE_TO_BASE = Object.fromEntries(
+  Object.entries(ENEMY_CONFIGS).map(([type, config]) => [type, config.damageToBase ?? 1])
+);
+
+const DEFAULT_ENEMY_VISUAL_SPEC = Object.freeze({
+  hitRadius: 20,
+  highlightRadius: 0,
+});
+
+/**
+ * 获取敌人类型的视觉参数（命中半径、装饰大小等）
+ * @param {string} type
+ */
+export function getEnemyVisualSpec(type) {
+  const config = ENEMY_CONFIGS[type];
+  if (!config || typeof config.visual !== "object") {
+    return DEFAULT_ENEMY_VISUAL_SPEC;
+  }
+  return {
+    ...DEFAULT_ENEMY_VISUAL_SPEC,
+    ...config.visual,
+  };
+}
 
 /**
  * 波次配置（保留作为默认配置，关卡中可复用）
@@ -382,21 +419,40 @@ export const waveConfigs = [
 /**
  * 關卡配置數組
  * 每個關卡包含：名稱、背景主題、BASE位置、敵人出生點、波次配置、能量配置
- * 
+ *
+ * Level 統一字段說明：
+ * - mapPreset / mapSize：描述地圖骨架及格子參考，用於隨機障礙生成
+ * - entryPosition：主入口參考點（即使有多個 spawnPoints，也便於 HUD 顯示）
+ * - randomObstacles：{@link RandomObstacleConfig}，用於生成動態障礙
+ * - obstacles：預設的靜態障礙，會與隨機障礙合併後一併渲染
+ *
  * 能量配置說明：
  * - initialEnergy: 初始能量
  * - maxEnergy: 最大能量上限
  * - energyRegenPerSecond: 每秒能量回復速度（可覆蓋全局默認值）
- * 
+ *
  * 波次配置說明：
  * - 每一波可以配置敵人的血量係數(hpMultiplier)和速度係數(speedMultiplier)
  * - 前幾波用於教學，中後期逐步提升難度
+ */
+
+/**
+ * @typedef {Object} RandomObstacleConfig
+ * @property {number} count 預計生成的障礙數量
+ * @property {number} avoidRadiusAroundBase 基地周圍的避讓半徑（0~1，相對地圖較短邊）
+ * @property {number} avoidRadiusAroundEntry 入口周圍的避讓半徑
+ * @property {number} [avoidPathDistance] 與預覽路徑保持的最小距離（0~1）
+ * @property {number} [minDistanceBetween] 兩個隨機障礙之間的最小距離（0~1）
+ * @property {number} [maxAttemptsPerObstacle] 單個障礙的嘗試次數上限
  */
 export const LEVELS = [
   {
     id: 1,
     name: "Level 1 · 入門訓練",
     backgroundClass: "map-theme-default",
+    mapPreset: "two-corridors",
+    mapSize: { width: 28, height: 20 },
+    entryPosition: { x: 0.5, y: 0.05 },
     basePosition: { x: 0.5, y: 0.85 }, // BASE 在底部中央
     spawnPoints: [
       { x: 0.1, y: 0.1 }, // 左上
@@ -411,49 +467,57 @@ export const LEVELS = [
     initialEnergy: 5,
     maxEnergy: 20,
     energyRegenPerSecond: 0.4, // 每2.5秒+1能量
+    randomObstacles: {
+      count: 6,
+      avoidRadiusAroundBase: 0.2,
+      avoidRadiusAroundEntry: 0.12,
+      avoidPathDistance: 0.05,
+      minDistanceBetween: 0.035,
+      maxAttemptsPerObstacle: 18,
+    },
     waves: [
       {
         id: 1,
         delay: 0,
-        enemies: [{ type: "normal", count: 8 }],
+        enemies: [{ type: "normal", count: 10, interval: 900 }],
       },
       {
         id: 2,
         delay: 3500,
         enemies: [
-          { type: "normal", count: 10 },
-          { type: "sprinter", count: 2 },
+          { type: "normal", count: 8, interval: 900 },
+          { type: "sprinter", count: 4, interval: 1400 },
         ],
       },
       {
         id: 3,
         delay: 3800,
         enemies: [
-          { type: "normal", count: 12 },
-          { type: "sprinter", count: 3 },
+          { type: "devourer", count: 3, interval: 1800 },
+          { type: "normal", count: 10, interval: 750 },
         ],
       },
       {
         id: 4,
         delay: 4200,
         enemies: [
-          { type: "normal", count: 12 },
-          { type: "sprinter", count: 4 },
-          { type: "devourer", count: 1 },
+          { type: "smart", count: 6, interval: 1100 },
+          { type: "normal", count: 6, interval: 800 },
         ],
       },
       {
         id: 5,
         delay: 0,
         enemies: [
-          { type: "normal", count: 14 },
-          { type: "smart", count: 2 },
-          { type: "healer", count: 2 },
+          { type: "boss", count: 1, interval: 0, hpMultiplier: 1.1, speedMultiplier: 0.9 },
+          { type: "healer", count: 3, interval: 2000 },
+          { type: "sprinter", count: 6, interval: 1000 },
+          { type: "devourer", count: 2, interval: 2200 },
         ],
       },
     ],
     difficulty: 1, // 难度星级 1~3
-    enemyTypes: ["普通", "冲刺", "吞噬", "智能", "治疗"], // 敌人类型
+    enemyTypes: ["普通", "冲刺", "吞噬", "智能", "治疗", "Boss"], // 敌人类型
     recommended: "推荐多放 DIV 塔防守正面", // 推荐玩法提示
     setupTimeSeconds: 10, // 布置时间（秒）
     previewPaths: [
@@ -475,6 +539,9 @@ export const LEVELS = [
     id: 2,
     name: "Level 2 · 四面楚歌",
     backgroundClass: "map-theme-cross",
+    mapPreset: "crossroads",
+    mapSize: { width: 32, height: 22 },
+    entryPosition: { x: 0.5, y: 0.05 },
     basePosition: { x: 0.5, y: 0.5 }, // BASE 在中央
     spawnPoints: [
       { x: 0.1, y: 0.1 }, // 左上
@@ -493,6 +560,14 @@ export const LEVELS = [
     initialEnergy: 8,
     maxEnergy: 25,
     energyRegenPerSecond: 0.45, // 每2.2秒+1能量
+    randomObstacles: {
+      count: 10,
+      avoidRadiusAroundBase: 0.18,
+      avoidRadiusAroundEntry: 0.15,
+      avoidPathDistance: 0.06,
+      minDistanceBetween: 0.04,
+      maxAttemptsPerObstacle: 20,
+    },
     waves: [
       {
         id: 1,
@@ -534,6 +609,7 @@ export const LEVELS = [
         id: 5,
         delay: 0,
         enemies: [
+          { type: "boss", count: 1, interval: 0, hpMultiplier: 1.2, speedMultiplier: 1 },
           { type: "normal", count: 18 },
           { type: "script", count: 4 },
           { type: "devourer", count: 2 },
@@ -543,7 +619,7 @@ export const LEVELS = [
       },
     ],
     difficulty: 2, // 难度星级
-    enemyTypes: ["普通", "冲刺", "BANNER", "SCRIPT", "吞噬", "智能", "治疗"], // 敌人类型
+    enemyTypes: ["普通", "冲刺", "BANNER", "SCRIPT", "吞噬", "智能", "治疗", "Boss"], // 敌人类型
     recommended: "需要全方位防御，合理使用布局卡提升整体战力", // 推荐玩法提示
     setupTimeSeconds: 12, // 布置时间（秒）
     previewPaths: [
@@ -574,6 +650,9 @@ export const LEVELS = [
     id: 3,
     name: "Level 3 · 終極挑戰",
     backgroundClass: "map-theme-dark",
+    mapPreset: "maze-core",
+    mapSize: { width: 34, height: 26 },
+    entryPosition: { x: 0.15, y: 0.05 },
     basePosition: { x: 0.5, y: 0.7 }, // BASE 在中下
     spawnPoints: [
       { x: 0.0, y: 0.0 }, // 左上角
@@ -595,6 +674,14 @@ export const LEVELS = [
     initialEnergy: 10,
     maxEnergy: 30,
     energyRegenPerSecond: 0.5, // 每2秒+1能量
+    randomObstacles: {
+      count: 12,
+      avoidRadiusAroundBase: 0.16,
+      avoidRadiusAroundEntry: 0.15,
+      avoidPathDistance: 0.06,
+      minDistanceBetween: 0.035,
+      maxAttemptsPerObstacle: 24,
+    },
     waves: [
       {
         id: 1,
@@ -639,6 +726,7 @@ export const LEVELS = [
         id: 5,
         delay: 0,
         enemies: [
+          { type: "boss", count: 1, interval: 0, hpMultiplier: 1.35, speedMultiplier: 1 },
           { type: "normal", count: 22 },
           { type: "script", count: 5 },
           { type: "devourer", count: 3 },
@@ -648,7 +736,7 @@ export const LEVELS = [
       },
     ],
     difficulty: 3, // 难度星级
-    enemyTypes: ["普通", "冲刺", "BANNER", "SCRIPT", "吞噬", "智能", "治疗"], // 敌人类型
+    enemyTypes: ["普通", "冲刺", "BANNER", "SCRIPT", "吞噬", "智能", "治疗", "Boss"], // 敌人类型
     recommended: "终极挑战！合理使用布局卡和样式卡，多放范围伤害塔", // 推荐玩法提示
     setupTimeSeconds: 15, // 布置时间（秒）
     previewPaths: [

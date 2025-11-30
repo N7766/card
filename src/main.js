@@ -49,6 +49,54 @@ function setupMinimalDomBindings() {
   }
 }
 
+function setupStartHelpToggle() {
+  const helpBtn = document.getElementById("btn-toggle-help");
+  const helpPanel = document.getElementById("start-help-panel");
+  if (!helpBtn || !helpPanel) return;
+
+  helpBtn.addEventListener("click", () => {
+    const hidden = helpPanel.classList.toggle("hidden");
+    helpBtn.textContent = hidden ? "操作说明" : "收起说明";
+  });
+}
+
+function setupCardSidebarToggle() {
+  const sidebar = document.getElementById("card-sidebar");
+  const toggleBtn = document.getElementById("card-sidebar-toggle");
+  if (!sidebar || !toggleBtn) return;
+
+  let userOverride = false;
+
+  const updateUi = () => {
+    const collapsed = sidebar.classList.contains("card-sidebar--collapsed");
+    sidebar.setAttribute("aria-expanded", String(!collapsed));
+    toggleBtn.setAttribute("aria-expanded", String(!collapsed));
+    toggleBtn.textContent = collapsed ? "展开" : "收起";
+  };
+
+  const applyResponsiveState = () => {
+    if (userOverride) {
+      updateUi();
+      return;
+    }
+    if (window.innerWidth < 1200) {
+      sidebar.classList.add("card-sidebar--collapsed");
+    } else {
+      sidebar.classList.remove("card-sidebar--collapsed");
+    }
+    updateUi();
+  };
+
+  toggleBtn.addEventListener("click", () => {
+    sidebar.classList.toggle("card-sidebar--collapsed");
+    userOverride = true;
+    updateUi();
+  });
+
+  window.addEventListener("resize", applyResponsiveState);
+  applyResponsiveState();
+}
+
 /**
  * 渲染關卡選擇按鈕。
  */
@@ -56,7 +104,7 @@ function renderLevelSelect() {
   const levelSelect = document.getElementById("level-select");
   if (!levelSelect) return;
 
-  levelSelect.innerHTML = '<p style="margin: 8px 0 4px 0; font-size: 13px; opacity: 0.9;">選擇關卡：</p>';
+  levelSelect.innerHTML = '<p class="level-select__label">選擇關卡：</p>';
 
   LEVELS.forEach((level, index) => {
     const btn = document.createElement("button");
@@ -82,6 +130,8 @@ function renderLevelSelect() {
 window.addEventListener("DOMContentLoaded", () => {
   // 渲染關卡選擇按鈕
   renderLevelSelect();
+  setupStartHelpToggle();
+  setupCardSidebarToggle();
 
   // 先尝试完整游戏初始化，增加更完善的错误捕获
   try {

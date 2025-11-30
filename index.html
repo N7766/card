@@ -3,28 +3,6 @@
   <head>
     <meta charset="UTF-8" />
     <title>DOM 塔防卡 - 纯前端牌类塔防游戏</title>
-    <!--
-      运行说明：
-      - 直接用浏览器打开本文件（双击或拖入浏览器）即可游玩，无需任何后端。
-      - 也可以使用任意静态服务器（如 `npx serve`）以 http 方式打开。
-
-      文件结构概览：
-      - index.html        入口页面
-      - styles.css        全局样式与游戏视觉
-      - src/main.js       入口脚本，初始化游戏
-      - src/game/config.js   基础配置（波次、数值等）
-      - src/game/cards.js    卡牌配置与相关工具
-      - src/game/ui.js       UI 缓存与更新、按钮与手牌渲染
-      - src/game/tower.js    塔的创建与样式卡应用
-      - src/game/enemy.js    敌人创建与行为更新
-      - src/game/game.js     核心游戏循环与状态管理
-      - src/game/storage.js  localStorage 存档（最高波数等）
-
-      扩展方向：
-      - 想增加新塔/敌人：在 config.js 与 tower.js / enemy.js 中添加配置与行为。
-      - 想增加新卡牌：在 cards.js 中添加 Card 配置，并在游戏中使用。
-      - 想调整数值平衡：修改 config.js 中的基础数值与 waveConfigs。
-    -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -32,20 +10,20 @@
     <div id="game-root">
       <!-- 开始游戏覆盖层 -->
       <div id="start-screen" class="overlay">
-        <div class="overlay-content">
+        <div class="overlay-content overlay-content--lean">
           <h1>DOM 塔防卡</h1>
-          <p>纯前端牌类塔防游戏，使用各种 DOM 塔防御网页怪物攻入基地！</p>
-          <ul class="rule-list">
-            <li>点击手牌进入使用模式。</li>
-            <li>塔卡：在战场点击放置塔。</li>
-            <li>布局卡 / 样式卡：点击已有塔或战场区域生效。</li>
-            <li>撑过所有波次，守住基地即可胜利。</li>
-          </ul>
+          <p class="start-tagline">拖塔、放卡，守住基地。</p>
+          <div class="start-actions">
+            <button id="btn-start" class="btn-primary">开始游戏</button>
+            <button id="btn-toggle-help" class="btn-ghost" type="button">操作说明</button>
+          </div>
+          <div id="start-help-panel" class="start-help hidden">
+            <p>点击手牌选择塔，点击战场即可放置。守住所有波次即可胜利。</p>
+          </div>
           <div id="level-select" class="level-select">
-            <p style="margin: 8px 0 4px 0; font-size: 13px; opacity: 0.9;">選擇關卡：</p>
+            <p class="level-select__label">選擇關卡：</p>
             <!-- 關卡按鈕將由 JS 動態生成 -->
           </div>
-          <button id="btn-start">开始游戏</button>
         </div>
       </div>
 
@@ -80,25 +58,65 @@
         </div>
       </div>
 
-      <!-- 关卡开始介绍气泡 -->
-      <div id="level-intro-bubble" class="bubble hidden">
-        <div class="bubble-content">
-          <h2 id="bubble-level-title">第 1 关 · 入门训练</h2>
-          <div id="bubble-difficulty" class="bubble-row">
-            <span class="bubble-label">难度：</span>
-            <span id="bubble-difficulty-stars" class="bubble-stars">★★☆☆☆</span>
+      <!-- 顶部状态栏 -->
+      <div id="top-hud-bar">
+        <div class="top-hud-section top-hud-section--hp">
+          <div class="top-stat-item top-stat-item--hp">
+            <span class="top-stat-label">基地生命：</span>
+            <div class="top-bar-container">
+              <div id="hp-bar" class="top-bar-fill top-bar-fill--hp"></div>
+            </div>
+            <span id="hp-text" class="top-stat-value">0 / 0</span>
           </div>
-          <div id="bubble-enemy-types" class="bubble-row">
-            <span class="bubble-label">敌人：</span>
-            <span id="bubble-enemy-types-list"></span>
+        </div>
+        <div class="top-hud-section top-hud-section--info" id="top-stage-info">
+          <div class="stage-info">
+            <div id="level-text" class="stage-info__level">Level --</div>
+            <div class="stage-info__meta">
+              <span id="wave-text" class="stage-info__meta-item">Wave 0 / 0</span>
+              <span class="stage-info__divider">·</span>
+              <span id="enemy-progress-text" class="stage-info__meta-item">0 / 0</span>
+            </div>
           </div>
-          <div id="bubble-prep-time-row" class="bubble-row">
-            <span class="bubble-label">布置时间：</span>
-            <span id="bubble-prep-time" class="bubble-prep-time-value">10s</span>
+          <div id="wave-toast" class="wave-toast" aria-live="polite"></div>
+        </div>
+        <div class="top-hud-section top-hud-section--energy">
+          <div class="top-stat-item top-stat-item--energy">
+            <span class="top-stat-label">能量：</span>
+            <div class="top-bar-container">
+              <div id="energy-bar" class="top-bar-fill top-bar-fill--energy"></div>
+            </div>
+            <span id="energy-text" class="top-stat-value">0 / 0</span>
           </div>
-          <p id="bubble-description">敌人从顶部两侧进攻，尝试用 DIV 塔守住正面。</p>
-          <div id="bubble-recommended" class="bubble-recommended">推荐多放 DIV 塔防守正面</div>
-          <button id="btn-close-bubble">开始战斗</button>
+          <div id="boss-status-bar" class="boss-status hidden">
+            <span id="boss-name-label" class="boss-status__name">BOSS</span>
+            <div class="boss-status__bar">
+              <div id="boss-hp-fill" class="boss-status__fill"></div>
+            </div>
+            <span id="boss-hp-text" class="boss-status__hp">0 / 0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 关卡开始提示条 -->
+      <div id="level-intro-bubble" class="prep-banner hidden">
+        <div class="prep-banner__body">
+          <div class="prep-banner__info">
+            <div id="bubble-level-title" class="prep-banner__title">第 1 关 · 入门训练</div>
+            <div class="prep-banner__stats">
+              <span id="bubble-difficulty-stars" class="prep-banner__stars">★★☆☆☆</span>
+              <span id="bubble-enemy-types-list" class="prep-banner__types"></span>
+            </div>
+            <p id="bubble-description" class="prep-banner__desc">
+              敌人从顶部两侧进攻，尝试用 DIV 塔守住正面。
+            </p>
+            <div id="bubble-recommended" class="prep-banner__tips">推荐多放 DIV 塔防守正面</div>
+          </div>
+          <div class="prep-banner__countdown">
+            <span class="prep-banner__label">布置倒计时</span>
+            <span id="bubble-prep-time" class="prep-banner__time">10s</span>
+            <button id="btn-close-bubble" class="prep-banner__action">立即开战</button>
+          </div>
         </div>
       </div>
 
@@ -107,25 +125,6 @@
 
       <!-- 主游戏布局 -->
       <div id="game-layout">
-        <!-- 顶部状态栏 -->
-        <div id="top-hud-bar">
-          <div class="top-stat-item top-stat-item--hp">
-            <span class="top-stat-label">基地生命：</span>
-            <div class="top-bar-container">
-              <div id="hp-bar" class="top-bar-fill top-bar-fill--hp"></div>
-            </div>
-            <span id="hp-text" class="top-stat-value">0 / 0</span>
-          </div>
-          <div class="top-stat-item top-stat-item--energy">
-            <span class="top-stat-label">能量：</span>
-            <div class="top-bar-container">
-              <div id="energy-bar" class="top-bar-fill top-bar-fill--energy"></div>
-            </div>
-            <span id="energy-text" class="top-stat-value">0 / 0</span>
-          </div>
-        </div>
-
-        <!-- 游戏区域和右侧道具栏容器 -->
         <div id="game-content-wrapper">
           <div id="game-field-wrapper">
             <div id="game-field">
@@ -134,32 +133,37 @@
             </div>
           </div>
 
-          <!-- 右侧道具栏 -->
-          <div id="right-item-panel">
-            <div id="item-inventory" class="item-inventory-vertical"></div>
-          </div>
-        </div>
-
-        <!-- 底部控制栏 -->
-        <div id="bottom-control-panel">
-          <div class="bottom-control-center">
-            <div class="stat-item stat-item--best">
-              <span class="best-wave-label">BEST WAVE</span>
-              <span id="best-record-text" class="best-wave-value">-</span>
+          <aside id="card-sidebar" class="card-sidebar" aria-expanded="true">
+            <div class="card-sidebar__header">
+              <span>塔牌 / 道具</span>
+              <button
+                id="card-sidebar-toggle"
+                class="card-sidebar__toggle"
+                type="button"
+                aria-label="收起道具栏"
+              >
+                收起
+              </button>
             </div>
-            <div class="stat-controls">
-              <button id="btn-pause" class="btn-control">暂停</button>
-              <button id="btn-speed" class="btn-control">1x</button>
-              <button id="btn-back-to-menu" class="btn-control btn-control--menu">主菜单</button>
+            <div class="card-sidebar__scroll">
+              <div class="card-sidebar__section">
+                <div class="card-sidebar__section-title">手牌</div>
+                <div id="hand-cards"></div>
+              </div>
+              <div class="card-sidebar__section card-sidebar__section--inventory">
+                <div class="card-sidebar__section-title">道具栏</div>
+                <div id="item-inventory" class="item-inventory-vertical"></div>
+              </div>
             </div>
-          </div>
+          </aside>
         </div>
+      </div>
 
-        <!-- 手牌区域（底部） -->
-        <div id="hand-panel">
-          <h3>手牌</h3>
-          <div id="hand-cards"></div>
-        </div>
+      <!-- 右下角控制面板 -->
+      <div id="floating-control-panel" class="floating-controls">
+        <button id="btn-pause" class="btn-control">暂停</button>
+        <button id="btn-speed" class="btn-control">1x</button>
+        <button id="btn-back-to-menu" class="btn-control btn-control--menu">主菜单</button>
       </div>
     </div>
 

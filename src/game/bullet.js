@@ -195,8 +195,8 @@ export function checkBulletHit(bullet, enemy) {
   const dy = bullet.y - enemy.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
   
-  // 命中判定：距离小于敌人半径（假设敌人半径为20像素）
-  const hitRadius = 20;
+  // 命中判定：距离小于敌人半径
+  const hitRadius = typeof enemy.hitRadius === "number" ? enemy.hitRadius : 20;
   return dist <= hitRadius;
 }
 
