@@ -4,8 +4,10 @@
  * 支持多种特殊敌人类型：冲刺型、吞噬型、智能绕路型、治疗型等。
  */
 
-import { ENEMY_CONFIGS, ENEMY_STATS, ENEMY_DAMAGE_TO_BASE, BASE_RADIUS } from "./config.js";
+import { ENEMY_CONFIGS, ENEMY_STATS, ENEMY_DAMAGE_TO_BASE, BASE_RADIUS, ENEMIES_CONFIG } from "./config.js";
 import { pixelToGrid, gridToPixel, findPath, GRID_CONFIG } from "./pathfinding.js";
+import { featureFlags } from "./featureFlags.js";
+import { getDebugMode } from "./debug.js";
 
 /**
  * 兜底模式开关：当寻路失败时，是否使用简单的直线移动逻辑
@@ -20,6 +22,38 @@ import { pixelToGrid, gridToPixel, findPath, GRID_CONFIG } from "./pathfinding.j
 const USE_FALLBACK_MOVEMENT_WHEN_NO_PATH = true;
 
 /**
+ * 判断是否需要输出敌人移动调试日志
+ * @returns {boolean}
+ */
+function shouldLogEnemyMovement() {
+  return featureFlags.debugOverlay && getDebugMode();
+}
+
+/**
+ * 输出敌人移动调试日志
+ * @param {"log"|"warn"|"error"} level
+ * @param {string} message
+ */
+function logEnemyDebug(level, message) {
+  if (!shouldLogEnemyMovement()) return;
+  console[level](message);
+}
+
+/**
+ * 当敌人尝试进入墙或塔时输出调试信息
+ * @param {Enemy} enemy
+ * @param {number} targetRow
+ * @param {number} targetCol
+ * @param {string} context
+ */
+function logEnemyCollisionAttempt(enemy, targetRow, targetCol, context) {
+  logEnemyDebug(
+    "warn",
+    `[enemy-move-blocked] ${enemy.id} (${enemy.enemyType}) ${context} -> 目标格子(${targetRow}, ${targetCol})`
+  );
+}
+
+/**
  * @typedef {Object} Enemy
  * @property {string} id
  * @property {HTMLElement} el
@@ -30,8 +64,10 @@ const USE_FALLBACK_MOVEMENT_WHEN_NO_PATH = true;
  * @property {number} speed 像素/秒（当前实际速度，可能被特殊行为修改）
  * @property {number} hp
  * @property {number} maxHp
- * @property {"normal"|"sprinter"|"devourer"|"smart"|"healer"|"ad"|"banner"|"script"} enemyType
+ * @property {"normal"|"sprinter"|"devourer"|"smart"|"healer"|"ad"|"banner"|"script"|"fast"|"tank"} enemyType
  * @property {boolean} alive
+ * @property {number} rewardEnergy 击杀后提供的能量奖励
+ * @property {string} [specialTag] 特殊标签（fast, tank等）
  * @property {Array<{row: number, col: number}>} path 网格坐标路径数组（当前路径，别名currentPath）
  * @property {number} pathIndex 当前路径点索引
  * @property {number} lastPathUpdateTime 上次更新路径的时间戳（用于性能优化）
@@ -88,11 +124,15 @@ function fallbackMovement(enemy, baseGrid, isWalkable, dtSeconds) {
   
   // 如果已经在BASE位置，不需要移动
   if (dRow === 0 && dCol === 0) {
-    console.log(`[fallbackMovement] 敌人 ${enemy.id} 已在BASE位置(${baseGrid.row},${baseGrid.col})，无需移动`);
+    logEnemyDebug(
+      "log",
+      `[fallbackMovement] 敌人 ${enemy.id} 已在BASE位置(${baseGrid.row},${baseGrid.col})，无需移动`
+    );
     return true;
   }
   
-  console.log(
+  logEnemyDebug(
+    "log",
     `[fallbackMovement] 敌人 ${enemy.id} 使用兜底移动: 当前位置(${enemy.row},${enemy.col}) -> BASE(${baseGrid.row},${baseGrid.col}), 距离=(${dRow},${dCol})`
   );
   
@@ -117,6 +157,7 @@ function fallbackMovement(enemy, baseGrid, isWalkable, dtSeconds) {
   
   // 检查下一步格子是否可走（基本的碰撞检测）
   if (isWalkable && !isWalkable(nextRow, nextCol)) {
+    logEnemyCollisionAttempt(enemy, nextRow, nextCol, "兜底移动主方向被阻挡");
     // 尝试另一个方向
     if (moveDirection === "row") {
       // 尝试col方向
@@ -124,12 +165,16 @@ function fallbackMovement(enemy, baseGrid, isWalkable, dtSeconds) {
       nextCol = enemy.col + (dCol > 0 ? 1 : -1);
       if (Math.abs(dCol) === 0) {
         // 两个方向都不可走，停在原地
-        console.warn(`[fallbackMovement] 敌人 ${enemy.id} 所有方向都不可走（已尝试row和col），停在原地`);
+        logEnemyDebug(
+          "warn",
+          `[fallbackMovement] 敌人 ${enemy.id} 所有方向都不可走（已尝试row和col），停在原地`
+        );
         return false;
       }
       if (isWalkable && !isWalkable(nextRow, nextCol)) {
         // col方向也不可走，停在原地
-        console.warn(`[fallbackMovement] 敌人 ${enemy.id} 所有方向都不可走，停在原地`);
+        logEnemyCollisionAttempt(enemy, nextRow, nextCol, "兜底移动备选方向被阻挡");
+        logEnemyDebug("warn", `[fallbackMovement] 敌人 ${enemy.id} 所有方向都不可走，停在原地`);
         return false;
       }
     } else {
@@ -138,12 +183,16 @@ function fallbackMovement(enemy, baseGrid, isWalkable, dtSeconds) {
       nextRow = enemy.row + (dRow > 0 ? 1 : -1);
       if (Math.abs(dRow) === 0) {
         // 两个方向都不可走，停在原地
-        console.warn(`[fallbackMovement] 敌人 ${enemy.id} 所有方向都不可走（已尝试col和row），停在原地`);
+        logEnemyDebug(
+          "warn",
+          `[fallbackMovement] 敌人 ${enemy.id} 所有方向都不可走（已尝试col和row），停在原地`
+        );
         return false;
       }
       if (isWalkable && !isWalkable(nextRow, nextCol)) {
         // row方向也不可走，停在原地
-        console.warn(`[fallbackMovement] 敌人 ${enemy.id} 所有方向都不可走，停在原地`);
+        logEnemyCollisionAttempt(enemy, nextRow, nextCol, "兜底移动备选方向被阻挡");
+        logEnemyDebug("warn", `[fallbackMovement] 敌人 ${enemy.id} 所有方向都不可走，停在原地`);
         return false;
       }
     }
@@ -175,7 +224,7 @@ function fallbackMovement(enemy, baseGrid, isWalkable, dtSeconds) {
     enemy.col = newGrid.col;
   }
   
-  console.log(`[fallbackMovement] 敌人 ${enemy.id} 移动到(${enemy.row},${enemy.col})`);
+  logEnemyDebug("log", `[fallbackMovement] 敌人 ${enemy.id} 移动到(${enemy.row},${enemy.col})`);
   return true;
 }
 
@@ -189,14 +238,16 @@ function updateSprinterBehavior(enemy, deltaTime) {
   if (!config || !config.specialBehavior) return;
   
   const behavior = config.specialBehavior;
+  // 获取速度系数（如果存在，否则默认为1.0）
+  const speedMultiplier = enemy.speedMultiplier !== undefined ? enemy.speedMultiplier : 1.0;
   
   if (enemy.isSprinting) {
     // 正在冲刺中
     enemy.sprintDurationTimer -= deltaTime;
     if (enemy.sprintDurationTimer <= 0) {
-      // 冲刺结束
+      // 冲刺结束，回到基础速度（应用速度系数）
       enemy.isSprinting = false;
-      enemy.speed = behavior.baseSpeed;
+      enemy.speed = behavior.baseSpeed * speedMultiplier;
       enemy.sprintCooldownTimer = behavior.sprintCooldown;
       enemy.el.classList.remove("enemy-sprinting");
     }
@@ -204,9 +255,9 @@ function updateSprinterBehavior(enemy, deltaTime) {
     // 冷却中
     enemy.sprintCooldownTimer -= deltaTime;
     if (enemy.sprintCooldownTimer <= 0) {
-      // 冷却完成，开始冲刺
+      // 冷却完成，开始冲刺（应用速度系数）
       enemy.isSprinting = true;
-      enemy.speed = behavior.baseSpeed * behavior.sprintSpeedMultiplier;
+      enemy.speed = behavior.baseSpeed * behavior.sprintSpeedMultiplier * speedMultiplier;
       enemy.sprintDurationTimer = behavior.sprintDuration;
       enemy.el.classList.add("enemy-sprinting");
     }
@@ -389,15 +440,24 @@ function updateHealerBehavior(healer, allEnemies, deltaTime) {
  * @param {Array<{x: number, y: number}>} [spawnPoints] 關卡出生點數組（0~1 相對座標），若提供則從中隨機選擇
  * @param {Array<Array<{x: number, y: number}>>} [previewPaths] 關卡預覽路徑數組（已废弃，保留兼容性）
  * @param {{x: number, y: number}} [basePosition] 基地位置（0~1 相對座標）
+ * @param {number} [hpMultiplier=1.0] 血量係數，用於波次難度調整
+ * @param {number} [speedMultiplier=1.0] 速度係數，用於波次難度調整
  * @returns {Enemy}
  */
-export function spawnEnemy(gameField, type, spawnPoints = null, previewPaths = null, basePosition = null) {
+export function spawnEnemy(gameField, type, spawnPoints = null, previewPaths = null, basePosition = null, hpMultiplier = 1.0, speedMultiplier = 1.0) {
+  // 【兜底模式】如果多种敌人类型功能关闭，强制使用普通敌人
+  let actualType = type;
+  if (!featureFlags.multiEnemyTypes && type !== "normal") {
+    console.log(`[enemy.js] 多种敌人类型功能已关闭，将 ${type} 转换为 normal`);
+    actualType = "normal";
+  }
+  
   // 优先使用新配置系统，如果不存在则使用旧系统（兼容性）
-  const config = ENEMY_CONFIGS[type] || null;
-  const stats = config ? null : ENEMY_STATS[type];
+  const config = ENEMY_CONFIGS[actualType] || null;
+  const stats = config ? null : ENEMY_STATS[actualType];
   
   if (!config && !stats) {
-    console.warn(`[enemy.js] 未知的敌人类型: ${type}，使用默认配置`);
+    console.warn(`[enemy.js] 未知的敌人类型: ${actualType}，使用默认配置`);
     return null;
   }
   
@@ -440,29 +500,29 @@ export function spawnEnemy(gameField, type, spawnPoints = null, previewPaths = n
   const el = document.createElement("div");
   el.classList.add("enemy");
   
-  // 根据敌人类型添加样式类和文本
-  if (type === "normal") {
+  // 根据敌人类型添加样式类和文本（使用actualType）
+  if (actualType === "normal") {
     el.classList.add("enemy-normal");
     el.textContent = "普通";
-  } else if (type === "sprinter") {
+  } else if (actualType === "sprinter") {
     el.classList.add("enemy-sprinter");
     el.textContent = "冲刺";
-  } else if (type === "devourer") {
+  } else if (actualType === "devourer") {
     el.classList.add("enemy-devourer");
     el.textContent = "吞噬";
-  } else if (type === "smart") {
+  } else if (actualType === "smart") {
     el.classList.add("enemy-smart");
     el.textContent = "智能";
-  } else if (type === "healer") {
+  } else if (actualType === "healer") {
     el.classList.add("enemy-healer");
     el.textContent = "治疗";
-  } else if (type === "ad") {
+  } else if (actualType === "ad") {
     el.classList.add("enemy-ad");
     el.textContent = "AD";
-  } else if (type === "banner") {
+  } else if (actualType === "banner") {
     el.classList.add("enemy-banner");
     el.textContent = "BANNER";
-  } else if (type === "script") {
+  } else if (actualType === "script") {
     el.classList.add("enemy-script");
     el.textContent = "SCRIPT";
   }
@@ -482,10 +542,14 @@ export function spawnEnemy(gameField, type, spawnPoints = null, previewPaths = n
   gameField.appendChild(el);
 
   // 使用新配置系统或旧系统
-  const maxHp = config ? config.maxHp : stats.hp;
-  const moveSpeed = config ? config.moveSpeed : stats.speed;
+  let baseMaxHp = config ? config.maxHp : stats.hp;
+  let baseMoveSpeed = config ? config.moveSpeed : stats.speed;
   const armor = config ? (config.armor || 0) : 0;
   const specialBehavior = config ? config.specialBehavior : null;
+  
+  // 应用波次配置中的血量和速度系数
+  const maxHp = Math.floor(baseMaxHp * hpMultiplier);
+  const moveSpeed = baseMoveSpeed * speedMultiplier;
   
   /** @type {Enemy} */
   const enemy = {
@@ -498,7 +562,7 @@ export function spawnEnemy(gameField, type, spawnPoints = null, previewPaths = n
     speed: moveSpeed,
     hp: maxHp,
     maxHp: maxHp,
-    enemyType: type,
+    enemyType: actualType,
     alive: true,
     path: [], // 网格坐标路径，将在第一次更新时计算（别名currentPath）
     pathIndex: 0,
@@ -507,22 +571,27 @@ export function spawnEnemy(gameField, type, spawnPoints = null, previewPaths = n
     armor: armor,
   };
   
-  // 根据敌人类型初始化特殊行为属性
-  if (type === "sprinter" && specialBehavior) {
-    enemy.sprintCooldownTimer = 0;
-    enemy.sprintDurationTimer = 0;
-    enemy.isSprinting = false;
-    // 初始速度为基础速度
-    enemy.speed = specialBehavior.baseSpeed || moveSpeed;
-  } else if (type === "devourer" && specialBehavior) {
-    enemy.devourCount = 0;
-    enemy.sizeScale = 1.0;
-    // 设置初始大小
-    el.style.transform = "translate(-50%, -50%) scale(1.0)";
-  } else if (type === "healer" && specialBehavior) {
-    enemy.healCooldownTimer = 0;
-    // 添加治疗型标记（用于后续渲染治疗范围）
-    el.classList.add("enemy-healer-type");
+  // 【新逻辑】根据敌人类型初始化特殊行为属性（通过featureFlags.multiEnemyTypes控制）
+  if (featureFlags.multiEnemyTypes) {
+    if (actualType === "sprinter" && specialBehavior) {
+      enemy.sprintCooldownTimer = 0;
+      enemy.sprintDurationTimer = 0;
+      enemy.isSprinting = false;
+      // 存储速度系数，用于冲刺时正确计算速度
+      enemy.speedMultiplier = speedMultiplier;
+      // 初始速度为基础速度（应用速度系数）
+      const baseSpeed = specialBehavior.baseSpeed || baseMoveSpeed;
+      enemy.speed = baseSpeed * speedMultiplier;
+    } else if (actualType === "devourer" && specialBehavior) {
+      enemy.devourCount = 0;
+      enemy.sizeScale = 1.0;
+      // 设置初始大小
+      el.style.transform = "translate(-50%, -50%) scale(1.0)";
+    } else if (actualType === "healer" && specialBehavior) {
+      enemy.healCooldownTimer = 0;
+      // 添加治疗型标记（用于后续渲染治疗范围）
+      el.classList.add("enemy-healer-type");
+    }
   }
 
   return enemy;
@@ -545,9 +614,9 @@ function recalculateEnemyPath(enemy, baseGrid, isWalkable, mapWidth, mapHeight, 
   
   console.log(`[recalculateEnemyPath] 为敌人 ${enemy.id} 重新计算路径: 从(${enemy.row},${enemy.col}) 到BASE(${baseGrid.row},${baseGrid.col})`);
   
-  // 为智能敌人创建危险度计算函数
+  // 【新逻辑】为智能敌人创建危险度计算函数（通过featureFlags.multiEnemyTypes控制）
   let dangerCostFunc = null;
-  if (enemy.enemyType === "smart") {
+  if (featureFlags.multiEnemyTypes && enemy.enemyType === "smart") {
     const config = ENEMY_CONFIGS[enemy.enemyType];
     if (config && config.specialBehavior) {
       dangerCostFunc = createDangerCostFunction(
@@ -653,13 +722,15 @@ export function updateEnemies(
   for (const enemy of enemies) {
     if (!enemy.alive) continue;
 
-    // 更新特殊行为（在移动之前）
-    if (enemy.enemyType === "sprinter") {
-      updateSprinterBehavior(enemy, deltaTime);
-    } else if (enemy.enemyType === "devourer") {
-      checkDevourerConsumption(enemy, enemies, deadEnemyPositions);
-    } else if (enemy.enemyType === "healer") {
-      updateHealerBehavior(enemy, enemies, deltaTime);
+    // 【新逻辑】更新特殊行为（在移动之前，通过featureFlags.multiEnemyTypes控制）
+    if (featureFlags.multiEnemyTypes) {
+      if (enemy.enemyType === "sprinter") {
+        updateSprinterBehavior(enemy, deltaTime);
+      } else if (enemy.enemyType === "devourer") {
+        checkDevourerConsumption(enemy, enemies, deadEnemyPositions);
+      } else if (enemy.enemyType === "healer") {
+        updateHealerBehavior(enemy, enemies, deltaTime);
+      }
     }
 
     // 更新当前网格坐标
@@ -688,26 +759,56 @@ export function updateEnemies(
       continue;
     }
 
-    // 优化后的寻路策略：只在以下情况更新路径：
-    // 1. 路径为空或未初始化（生成时）
-    // 2. 路径索引超出范围（路径走完）
-    // 3. 标记需要强制重新计算（塔放置后）
-    const needsPathUpdate = 
-      !enemy.path || 
-      enemy.path.length === 0 || 
-      enemy.pathIndex >= enemy.path.length ||
-      enemy.needsPathRecalculation;
+    // 【新逻辑】优化后的寻路策略（通过featureFlags.newPathfinding控制）
+    // 【兜底模式】如果新寻路功能关闭，使用简单的直线移动逻辑
+    if (!featureFlags.newPathfinding) {
+      // 旧逻辑：简单直线移动（朝向BASE）
+      const dx = basePos.x - enemy.x;
+      const dy = basePos.y - enemy.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > epsilon) {
+        const step = enemy.speed * dtSeconds;
+        const moveDistance = Math.min(step, dist);
+        const dirX = dx / dist;
+        const dirY = dy / dist;
+        const nextX = enemy.x + dirX * moveDistance;
+        const nextY = enemy.y + dirY * moveDistance;
+        const nextGrid = pixelToGrid(nextX, nextY);
 
-    if (needsPathUpdate && isWalkable && baseGrid) {
-      // 尝试重新计算路径
-      const pathFound = recalculateEnemyPath(
-        enemy,
-        baseGrid,
-        isWalkable,
-        mapWidth,
-        mapHeight,
-        towers || []
-      );
+        if (isWalkable && !isWalkable(nextGrid.row, nextGrid.col)) {
+          logEnemyCollisionAttempt(enemy, nextGrid.row, nextGrid.col, "旧移动逻辑检测到障碍");
+          if (baseGrid && isWalkable) {
+            fallbackMovement(enemy, baseGrid, isWalkable, dtSeconds);
+          }
+        } else {
+          enemy.x = nextX;
+          enemy.y = nextY;
+          enemy.row = nextGrid.row;
+          enemy.col = nextGrid.col;
+        }
+      }
+    } else {
+      // 【新逻辑】动态寻路系统
+      // 优化后的寻路策略：只在以下情况更新路径：
+      // 1. 路径为空或未初始化（生成时）
+      // 2. 路径索引超出范围（路径走完）
+      // 3. 标记需要强制重新计算（塔放置后）
+      const needsPathUpdate = 
+        !enemy.path || 
+        enemy.path.length === 0 || 
+        enemy.pathIndex >= enemy.path.length ||
+        enemy.needsPathRecalculation;
+
+      if (needsPathUpdate && isWalkable && baseGrid) {
+        // 尝试重新计算路径
+        const pathFound = recalculateEnemyPath(
+          enemy,
+          baseGrid,
+          isWalkable,
+          mapWidth,
+          mapHeight,
+          towers || []
+        );
       
       if (!pathFound) {
         // 寻路失败，但不要立即卡死
@@ -737,15 +838,17 @@ export function updateEnemies(
       }
     }
 
-    // 移动逻辑：如果有有效路径，继续移动
-    if (enemy.path && enemy.path.length > 0 && enemy.pathIndex < enemy.path.length) {
+    // 【新逻辑】移动逻辑：如果有有效路径，继续移动（通过featureFlags.newPathfinding控制）
+    if (featureFlags.newPathfinding && enemy.path && enemy.path.length > 0 && enemy.pathIndex < enemy.path.length) {
       const targetGrid = enemy.path[enemy.pathIndex];
       
       // 安全检查：如果目标格子不可走，可能是路径过期了，尝试重新寻路
       if (isWalkable && !isWalkable(targetGrid.row, targetGrid.col)) {
-        console.warn(
-          `[updateEnemies] 敌人 ${enemy.id} 的路径目标格子(${targetGrid.row},${targetGrid.col})不可走，` +
-          `当前位置(${enemy.row},${enemy.col})，强制重新寻路`
+        logEnemyCollisionAttempt(
+          enemy,
+          targetGrid.row,
+          targetGrid.col,
+          "路径目标格子不可走，强制重新寻路"
         );
         // 强制重新寻路
         enemy.needsPathRecalculation = true;
@@ -769,9 +872,11 @@ export function updateEnemies(
         
         // 安全检查：确保目标格子可走
         if (isWalkable && !isWalkable(newGrid.row, newGrid.col)) {
-          console.error(
-            `[updateEnemies] 错误：敌人 ${enemy.id} 移动到非法格子(${newGrid.row},${newGrid.col})！` +
-            `当前位置(${enemy.row},${enemy.col})，强制重新寻路`
+          logEnemyCollisionAttempt(
+            enemy,
+            newGrid.row,
+            newGrid.col,
+            "路径终点非法，强制重新寻路"
           );
           // 不移动，保持当前位置
           enemy.needsPathRecalculation = true;
@@ -799,8 +904,11 @@ export function updateEnemies(
           // 如果跨过了网格边界，检查新格子是否可走
           if (isWalkable && !isWalkable(newGrid.row, newGrid.col)) {
             // 新格子不可走，回退到上一个合法位置
-            console.warn(
-              `[updateEnemies] 敌人 ${enemy.id} 尝试移动到非法格子(${newGrid.row},${newGrid.col})，回退`
+            logEnemyCollisionAttempt(
+              enemy,
+              newGrid.row,
+              newGrid.col,
+              "插值移动检测到非法格子，回退"
             );
             enemy.x = gridToPixel(enemy.row, enemy.col).x;
             enemy.y = gridToPixel(enemy.row, enemy.col).y;
@@ -843,6 +951,7 @@ export function updateEnemies(
         console.warn(`[updateEnemies] 敌人 ${enemy.id} 路径走完但未到达BASE，可能有问题`);
       }
     }
+    } // 结束 newPathfinding 分支
 
     // 更新 DOM 位置
     enemy.el.style.left = `${enemy.x}px`;

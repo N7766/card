@@ -462,7 +462,8 @@ export function updateTowerPlacementPreview(
   towerPlacementPathContainer.innerHTML = "";
   
   // 检查是否可以放置
-  const canPlace = canPlaceTowerAt(pixel.x, pixel.y);
+  const placementResult = canPlaceTowerAt(pixel.x, pixel.y);
+  const canPlace = placementResult.canPlace || placementResult === true; // 兼容旧版本返回布尔值的情况
   
   // 创建预览格子标记
   const previewMarker = document.createElement("div");

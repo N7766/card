@@ -14,7 +14,7 @@ const gameRoot = document.getElementById("game-root");
 const gameField = /** @type {HTMLElement} */ (document.getElementById("game-field"));
 const baseEl = /** @type {HTMLElement} */ (document.getElementById("base"));
 
-const uiPanel = document.getElementById("ui-panel");
+const uiPanel = document.getElementById("ui-panel"); // 保留用于兼容性，但不再使用
 const hpBar = /** @type {HTMLElement} */ (document.getElementById("hp-bar"));
 const hpText = /** @type {HTMLElement} */ (document.getElementById("hp-text"));
 const energyBar = /** @type {HTMLElement} */ (document.getElementById("energy-bar"));
@@ -41,7 +41,6 @@ const defeatScreen = /** @type {HTMLElement} */ (document.getElementById("defeat
 const btnStart = /** @type {HTMLButtonElement} */ (document.getElementById("btn-start"));
 const btnPause = /** @type {HTMLButtonElement} */ (document.getElementById("btn-pause"));
 const btnSpeed = /** @type {HTMLButtonElement} */ (document.getElementById("btn-speed"));
-const btnDebug = /** @type {HTMLButtonElement} */ (document.getElementById("btn-debug"));
 const btnRestartVictory = /** @type {HTMLButtonElement} */ (
   document.getElementById("btn-restart-victory")
 );
@@ -87,7 +86,6 @@ export const uiElements = {
   btnStart,
   btnPause,
   btnSpeed,
-  btnDebug,
   btnRestartVictory,
   btnRestartDefeat,
   victoryBestRecord,
@@ -96,7 +94,7 @@ export const uiElements = {
 
 /**
  * 綁定控制按鈕的事件。
- * @param {{ onStart: () => void, onTogglePause: () => void, onRestart: () => void, onToggleSpeed: () => void, onToggleDebug?: () => void, onNextLevel?: () => void, onRetryLevel?: () => void, onBackToStart?: () => void, onBackToMenu?: () => void }} handlers
+ * @param {{ onStart: () => void, onTogglePause: () => void, onRestart: () => void, onToggleSpeed: () => void, onNextLevel?: () => void, onRetryLevel?: () => void, onBackToStart?: () => void, onBackToMenu?: () => void }} handlers
  */
 export function bindControlButtons(handlers) {
   btnStart.addEventListener("click", () => {
@@ -110,12 +108,6 @@ export function bindControlButtons(handlers) {
   btnSpeed.addEventListener("click", () => {
     handlers.onToggleSpeed();
   });
-
-  if (btnDebug && handlers.onToggleDebug) {
-    btnDebug.addEventListener("click", () => {
-      handlers.onToggleDebug();
-    });
-  }
 
   btnRestartVictory.addEventListener("click", () => {
     handlers.onRestart();
@@ -167,23 +159,25 @@ export function updateHp(hp, maxHp) {
  * 更新能量顯示。
  * @param {number} energy
  * @param {number} maxEnergy
+ * @param {number} [energyRegenPerSecond] 每秒能量回復速度（可选，用于显示回复速度）
  */
-export function updateEnergy(energy, maxEnergy) {
+export function updateEnergy(energy, maxEnergy, energyRegenPerSecond = null) {
   const ratio = maxEnergy > 0 ? Math.max(0, Math.min(1, energy / maxEnergy)) : 0;
   energyBar.style.transform = `scaleX(${ratio})`;
-  energyText.textContent = `${Math.floor(energy)} / ${maxEnergy}`;
   
-  // 确保能量图标存在（在能量文本之前）
-  const statItem = energyText.parentElement;
-  if (statItem) {
-    let energyIcon = energyText.previousElementSibling;
-    if (!energyIcon || !energyIcon.classList || !energyIcon.classList.contains("energy-icon")) {
-      energyIcon = document.createElement("span");
-      energyIcon.className = "energy-icon";
-      energyIcon.textContent = "⚡";
-      statItem.insertBefore(energyIcon, energyText);
+  // 构建能量文本：当前/上限，如果有回复速度则显示
+  let energyDisplayText = `${Math.floor(energy)} / ${maxEnergy}`;
+  if (energyRegenPerSecond !== null && energyRegenPerSecond > 0) {
+    // 计算每多少秒回复1点能量
+    const secondsPerEnergy = 1 / energyRegenPerSecond;
+    if (secondsPerEnergy >= 1) {
+      energyDisplayText += ` (+1/${Math.round(secondsPerEnergy)}s)`;
+    } else {
+      // 如果回复速度很快（小于1秒），显示每秒回复量
+      energyDisplayText += ` (+${energyRegenPerSecond.toFixed(1)}/s)`;
     }
   }
+  energyText.textContent = energyDisplayText;
 }
 
 /**
@@ -192,7 +186,9 @@ export function updateEnergy(energy, maxEnergy) {
  * @param {number} totalWaves 總波數
  */
 export function updateWave(waveIndex, totalWaves) {
-  waveText.textContent = `${Math.min(waveIndex + 1, totalWaves)} / ${totalWaves}`;
+  if (!waveText) return;
+  const current = Math.min(waveIndex + 1, totalWaves);
+  waveText.textContent = `Wave ${current} / ${totalWaves}`;
 }
 
 /**
@@ -212,6 +208,7 @@ export function updateBestRecord(bestWave) {
  */
 export function renderHandCards(handCards, onCardClick, selectedCard, currentEnergy = 0) {
   handCardsContainer.innerHTML = "";
+  handCardsContainer.dataset.currentEnergy = String(currentEnergy);
 
   for (let i = 0; i < MAX_HAND_SIZE; i++) {
     const card = handCards[i];
@@ -305,11 +302,10 @@ export function renderHandCards(handCards, onCardClick, selectedCard, currentEne
     // 设置tooltip（详细描述）
     el.dataset.tooltip = card.description;
 
-    // 点击事件：能量不足时显示提示，否则正常处理
-    const cardAffordable = affordable; // 保存到闭包中
+    // 点击事件：实时读取当前能量，避免因闭包导致的错误禁用
     el.addEventListener("click", () => {
-      if (!cardAffordable) {
-        // 能量不足时显示提示
+      const currentEnergySnapshot = Number(handCardsContainer.dataset.currentEnergy || "0");
+      if (currentEnergySnapshot < card.cost) {
         showEnergyInsufficientTip();
         flashCardInsufficient(card.id);
         return;
@@ -327,6 +323,7 @@ export function renderHandCards(handCards, onCardClick, selectedCard, currentEne
  * @param {number} currentEnergy
  */
 export function updateHandEnergyState(currentEnergy) {
+  handCardsContainer.dataset.currentEnergy = String(currentEnergy);
   const cardEls = /** @type NodeListOf<HTMLElement> */ (
     handCardsContainer.querySelectorAll(".card:not(.card-empty)")
   );
@@ -379,12 +376,12 @@ export function flashCardInsufficient(cardId) {
 function showEnergyInsufficientTip() {
   let tipEl = document.getElementById("energy-insufficient-tip");
   
-  if (!tipEl && uiPanel) {
+  if (!tipEl && gameRoot) {
     tipEl = document.createElement("div");
     tipEl.id = "energy-insufficient-tip";
     tipEl.className = "energy-insufficient-tip";
     tipEl.textContent = "能量不足";
-    uiPanel.insertBefore(tipEl, uiPanel.firstChild);
+    gameRoot.appendChild(tipEl);
   }
   
   if (!tipEl) return;
@@ -463,19 +460,11 @@ export function updateSpeedButton(multiplier) {
 }
 
 /**
- * 更新调试按钮显示状态。
+ * 更新调试按钮显示状态（已移除，保留函数以兼容）。
  * @param {boolean} isDebugMode
  */
 export function updateDebugButton(isDebugMode) {
-  if (btnDebug) {
-    if (isDebugMode) {
-      btnDebug.classList.add("debug-active");
-      btnDebug.textContent = "调试 ✓";
-    } else {
-      btnDebug.classList.remove("debug-active");
-      btnDebug.textContent = "调试";
-    }
-  }
+  // 调试按钮已移除，此函数保留以兼容旧代码
 }
 
 let waveToastEl =
@@ -561,7 +550,8 @@ export function updateBattleProgress(levelIndex, levelName, waveIndex, totalWave
   levelText.textContent = `Level ${levelIndex + 1} · ${levelName}`;
   
   // 更新波次
-  waveText.textContent = `${waveIndex + 1} / ${totalWaves}`;
+  const currentWave = Math.min(waveIndex + 1, totalWaves);
+  waveText.textContent = `Wave ${currentWave} / ${totalWaves}`;
   
   // 更新敌人进度
   enemyProgressText.textContent = `${enemiesKilled} / ${totalEnemies}`;

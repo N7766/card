@@ -26,16 +26,67 @@ export const MAX_HAND_SIZE = 5;
  */
 export const CARD_LIBRARY = [
   {
+    id: "tower1",
+    name: "Rapid Tower",
+    type: "tower",
+    cost: 4, // 基础塔，费用较低
+    description: "单体高速攻击，伤害较低。适合清理血量较低、移动速度快的小怪。",
+    stats: {
+      attack: 1, // 攻击力等级 (1-3)
+      range: 2, // 射程等级 (1-3)
+      speed: 3, // 攻速等级 (1-3, 数值越高越快)
+      typeTag: "快速单体",
+    },
+    config: {
+      towerType: "tower1",
+      label: "RAPID",
+    },
+  },
+  {
+    id: "tower2",
+    name: "Explosive Tower",
+    type: "tower",
+    cost: 7, // 中等费用
+    description: "范围伤害塔，攻速极慢，无法攻击贴身敌人。发射爆炸性子弹，对范围内敌人造成伤害。",
+    stats: {
+      attack: 2,
+      range: 2,
+      speed: 1,
+      typeTag: "范围爆炸",
+    },
+    config: {
+      towerType: "tower2",
+      label: "EXPL",
+    },
+  },
+  {
+    id: "tower3",
+    name: "Sniper Tower",
+    type: "tower",
+    cost: 10, // 高费用
+    description: "高伤害远程塔，优先攻击血量最高的敌人。攻速很慢，但单次伤害很高，可作为精英怪克星。",
+    stats: {
+      attack: 3,
+      range: 3,
+      speed: 1,
+      typeTag: "远程狙击",
+    },
+    config: {
+      towerType: "tower3",
+      label: "SNIP",
+    },
+  },
+  // 保留旧塔类型作为兼容（可选）
+  {
     id: "tower-div",
     name: "Div Tower",
     type: "tower",
-    cost: 3,
+    cost: 5,
     description: "中等攻速與傷害的 DIV 塔，射程適中，適合作為通用主力輸出。",
-    // 卡牌正面显示的数值摘要
     stats: {
-      attack: 2, // 攻击力等级 (1-3)
-      range: 2, // 射程等级 (1-3)
-      speed: 2, // 攻速等级 (1-3, 数值越高越快)
+      attack: 2,
+      range: 2,
+      speed: 2,
       typeTag: "单体",
     },
     config: {
@@ -47,7 +98,7 @@ export const CARD_LIBRARY = [
     id: "tower-button",
     name: "Button Tower",
     type: "tower",
-    cost: 4,
+    cost: 7,
     description: "攻速較慢但傷害高的 BUTTON 塔，射程略短，專門點殺高血目標。",
     stats: {
       attack: 3,
@@ -64,7 +115,7 @@ export const CARD_LIBRARY = [
     id: "tower-img",
     name: "Image Tower",
     type: "tower",
-    cost: 6,
+    cost: 9,
     description: "範圍攻擊 IMG 塔，高射程覆蓋大片區域，但攻速偏慢、Cost 較高。",
     stats: {
       attack: 2,
@@ -75,38 +126,6 @@ export const CARD_LIBRARY = [
     config: {
       towerType: "img",
       label: "IMG",
-    },
-  },
-  {
-    id: "layout-flex",
-    name: "Flex Layout",
-    type: "layout",
-    cost: 3,
-    description: "為戰場套上 Flex 佈局增益，所有塔獲得小幅攻速加成。",
-    stats: {
-      effectTag: "全塔攻速＋10%",
-    },
-    config: {
-      layoutType: "flex",
-      fieldClass: "field-layout-flex",
-      attackIntervalMultiplier: 0.9, // 攻速约+11%
-      damageMultiplier: 1.0,
-    },
-  },
-  {
-    id: "layout-grid",
-    name: "Grid Layout",
-    type: "layout",
-    cost: 4,
-    description: "為戰場套上 Grid 佈局增益，所有塔傷害略微提升。",
-    stats: {
-      effectTag: "全塔攻击＋15%",
-    },
-    config: {
-      layoutType: "grid",
-      fieldClass: "field-layout-grid",
-      attackIntervalMultiplier: 1.0,
-      damageMultiplier: 1.15, // 伤害+15%
     },
   },
   {

@@ -83,7 +83,7 @@ window.addEventListener("DOMContentLoaded", () => {
   // 渲染關卡選擇按鈕
   renderLevelSelect();
 
-  // 先尝试完整游戏初始化
+  // 先尝试完整游戏初始化，增加更完善的错误捕获
   try {
     initGame();
     console.log("[DOM 塔防卡] 完整游戏逻辑初始化成功。");
@@ -92,6 +92,14 @@ window.addEventListener("DOMContentLoaded", () => {
       "[DOM 塔防卡] initGame 初始化失败，将退回到最小 DOM 绑定逻辑：",
       error
     );
+    
+    // 显示错误信息到页面
+    const errorEl = document.getElementById("game-error");
+    if (errorEl) {
+      errorEl.textContent = `游戏初始化失败：${error.message || error}。请打开控制台查看详细错误日志。`;
+      errorEl.style.display = "block";
+    }
+    
     // 当完整逻辑失败时，至少保证按钮可以工作，不让页面"死掉"
     setupMinimalDomBindings();
     return;

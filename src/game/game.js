@@ -31,7 +31,6 @@ import {
   MAX_ENERGY,
   ENERGY_REGEN_PER_SECOND,
   LEVELS,
-  getTotalEnemiesForLevel,
   AUTO_BACK_TO_MENU_MS,
 } from "./config.js";
 import { getInitialHand } from "./cards.js";
@@ -51,7 +50,6 @@ import {
   flashCardInsufficient,
   updatePauseButton,
   updateSpeedButton,
-  updateDebugButton,
   updateHandEnergyState,
   showWaveToast,
   updateBasePosition,
@@ -69,9 +67,18 @@ import {
 } from "./ui.js";
 import { createTower, applyStyleCardToTower } from "./tower.js";
 import { spawnEnemy, updateEnemies, recalculateAllEnemyPaths } from "./enemy.js";
+import {
+  createBullet,
+  updateBullet,
+  checkBulletHit,
+  playBulletHitEffect,
+  cleanupBullets,
+} from "./bullet.js";
+import { ItemManager } from "./items.js";
 import { loadBestRecord, saveBestRecord, markEverWon } from "./storage.js";
-import { TOWER_WIDTH, TOWER_HEIGHT } from "./config.js";
+import { TOWER_WIDTH, TOWER_HEIGHT, BASE_RADIUS } from "./config.js";
 import { pixelToGrid, gridToPixel, findPath, hasPath, GRID_CONFIG } from "./pathfinding.js";
+import { featureFlags } from "./featureFlags.js";
 import {
   initDebugMode,
   toggleDebugMode,
@@ -95,17 +102,19 @@ import {
  * @property {number} maxBaseHp
  * @property {number} energy
  * @property {number} maxEnergy
- * @property {number} waveIndex 當前波索引（0 開始）
+ * @property {number} currentWaveIndex 當前波索引（0 開始）
  * @property {boolean} running 是否正在運行
  * @property {boolean} paused 是否暫停
  * @property {"menu"|"setup"|"battle"|"paused"} phase 遊戲階段：menu=主菜單，setup=布置階段，battle=戰鬥階段，paused=暫停
  * @property {Card[]} handCards
  * @property {number} lastFrameTime 上一幀時間戳（毫秒）
- * @property {boolean} waveFinishedSpawning 當前波是否已全部生成
+ * @property {boolean} isSpawningWave 當前是否正在生成該波敵人
+ * @property {boolean} waveSpawnFinished 當前波是否已全部生成
+ * @property {boolean} isWaveCleared 當前波敵人是否已清空
  * @property {number} spawnCursor 當前波中正在處理的敵人組索引
  * @property {number} spawnedInCurrentGroup 當前敵人組已生成數量
  * @property {number} timeSinceLastSpawn 當前組距上一個敵人生成的時間
- * @property {number} timeSinceWaveCleared 當前波敵人全部清除後經過的時間
+ * @property {number} waveClearDelayRemaining 下一波開始前剩餘延遲時間
  * @property {number} logicTime 遊戲邏輯時間（毫秒，用於與可調速度掛鉤）
  * @property {number} speedMultiplier 遊戲速度倍率（1 表示正常，2 表示 2 倍速）
  * @property {number} currentLevelIndex 當前關卡索引（0 開始）
@@ -113,6 +122,8 @@ import {
  * @property {number} totalEnemiesInLevel 本關總敵人數
  * @property {Array} currentLevelWaves 當前關卡的波次配置
  * @property {number | null} pauseStartTime 暫停開始的時間戳（毫秒），null 表示未暫停或已恢復
+ * @property {Array} bullets 當前所有存活的子彈
+ * @property {ItemManager} itemManager 道具管理器
  */
 
 /** @type {GameState | null} */
@@ -120,6 +131,107 @@ let state = null;
 
 /** @type {number | null} */
 let animationFrameId = null;
+
+const MIN_WAVES_PER_LEVEL = 5;
+const DEFAULT_GROUP_INTERVAL_MS = 900;
+const MIN_GROUP_INTERVAL_MS = 250;
+const DEFAULT_WAVE_DELAY_MS = 3500;
+
+/**
+ * 深拷貝並校驗關卡波次配置，確保至少具備 MIN_WAVES_PER_LEVEL 波。
+ * @param {typeof LEVELS[0]} level
+ * @returns {Array<{id:number, delay:number, enemies:Array}>}
+ */
+function sanitizeLevelWaves(level) {
+  const waves = Array.isArray(level?.waves) ? level.waves : [];
+  const sanitized = waves.map((wave, index) => sanitizeSingleWave(wave, index));
+
+  if (sanitized.length === 0) {
+    console.warn(`[wave] 關卡 ${level.name} 缺少波次配置，將使用空陣列。`);
+    return sanitized;
+  }
+
+  if (sanitized.length < MIN_WAVES_PER_LEVEL) {
+    const lastWave = sanitized[sanitized.length - 1];
+    while (sanitized.length < MIN_WAVES_PER_LEVEL) {
+      const nextIndex = sanitized.length;
+      sanitized.push({
+        id: nextIndex + 1,
+        delay: lastWave.delay,
+        enemies: lastWave.enemies.map((group) => ({ ...group })),
+      });
+    }
+    console.warn(
+      `[wave] 關卡 ${level.name} 波數不足 ${MIN_WAVES_PER_LEVEL} 波，已自動補齊。`
+    );
+  }
+
+  return sanitized;
+}
+
+/**
+ * @param {any} wave
+ * @param {number} index
+ */
+function sanitizeSingleWave(wave, index) {
+  const enemies = Array.isArray(wave?.enemies)
+    ? wave.enemies.map((group) => sanitizeEnemyGroup(group)).filter(Boolean)
+    : [];
+
+  return {
+    id: wave?.id ?? index + 1,
+    delay: resolveWaveDelay(wave),
+    enemies,
+  };
+}
+
+/**
+ * @param {any} group
+ */
+function sanitizeEnemyGroup(group) {
+  if (!group) return null;
+  const count = Number(group.count) || 0;
+  if (count <= 0) return null;
+
+  return {
+    type: group.type || "normal",
+    count,
+    interval: resolveGroupInterval(group.interval),
+    hpMultiplier: group.hpMultiplier ?? 1,
+    speedMultiplier: group.speedMultiplier ?? 1,
+  };
+}
+
+function resolveGroupInterval(interval) {
+  if (typeof interval !== "number" || Number.isNaN(interval)) {
+    return DEFAULT_GROUP_INTERVAL_MS;
+  }
+  return Math.max(MIN_GROUP_INTERVAL_MS, interval);
+}
+
+function resolveWaveDelay(wave) {
+  if (!wave) return DEFAULT_WAVE_DELAY_MS;
+  const delayValue =
+    typeof wave.delay === "number"
+      ? wave.delay
+      : typeof wave.delayAfter === "number"
+      ? wave.delayAfter
+      : DEFAULT_WAVE_DELAY_MS;
+  return Math.max(0, delayValue);
+}
+
+/**
+ * @param {Array<{enemies:Array<{count:number}>}>} waves
+ */
+function countEnemiesInWaves(waves) {
+  let total = 0;
+  for (const wave of waves) {
+    for (const group of wave.enemies) {
+      total += group.count;
+    }
+  }
+  return total;
+}
 
 /**
  * 返回主菜单，清理当前游戏状态。
@@ -145,6 +257,9 @@ export function backToMainMenu() {
   if (state) {
     state.towers = [];
     state.enemies = [];
+    if (state.itemManager) {
+      state.itemManager.cleanup();
+    }
   }
 
   // 重置选中状态
@@ -194,65 +309,26 @@ let currentSpawnPoints = [];
 let activeLayoutBuffs = [];
 
 /**
- * 调试函数：在控制台暴露，方便测试寻路和塔放置
+ * 调试函数已移除，正式版本不暴露调试接口
+ * 如需调试，请在开发环境中使用浏览器开发者工具
  */
-export function debugPathfinding() {
-  if (!state) {
-    console.log("[调试] 游戏未开始");
-    return;
-  }
-  
-  const level = LEVELS[state.currentLevelIndex];
-  const mapSize = getMapSize();
-  const spawnPoints = getSpawnPointsGrid(level);
-  const baseGrid = getBaseGrid(level);
-  
-  console.log("[调试] 地图信息:", {
-    mapSize,
-    spawnPoints,
-    baseGrid,
-    towersCount: state.towers.length,
-    enemiesCount: state.enemies.length,
-  });
-  
-  // 测试从每个入口到BASE的路径
-  if (baseGrid && spawnPoints.length > 0) {
-    const isWalkableFunc = (row, col) => {
-      // 调试寻路时应该允许BASE和入口点可走
-      return isWalkable(row, col, state.towers, state.enemies, level, null, null, true);
-    };
-    
-    spawnPoints.forEach((spawn, index) => {
-      const hasPath = findPath(
-        spawn.row,
-        spawn.col,
-        baseGrid.row,
-        baseGrid.col,
-        isWalkableFunc,
-        mapSize.width,
-        mapSize.height
-      );
-      console.log(`[调试] 入口${index + 1} (${spawn.row}, ${spawn.col}) 到 BASE:`, 
-        hasPath ? `有路径 (${hasPath.length}步)` : "无路径");
-    });
-  }
-}
-
-// 在控制台暴露调试函数
-if (typeof window !== 'undefined') {
-  window.debugPathfinding = debugPathfinding;
-}
 
 /**
  * 初始化遊戲，綁定 UI 事件並顯示開始界面。
  */
 export function initGame() {
-  const best = loadBestRecord();
-  updateBestRecord(best);
+  try {
+    const best = loadBestRecord();
+    updateBestRecord(best);
+  } catch (error) {
+    console.error("[initGame] 加载存档失败：", error);
+    // 继续执行，使用默认值
+  }
+  
+  try {
 
-  // 初始化调试模式
+  // 初始化调试模式（保留功能，但移除UI按钮）
   const isDebug = initDebugMode();
-  updateDebugButton(isDebug);
 
   bindControlButtons({
     onStart: () => {
@@ -273,15 +349,6 @@ export function initGame() {
     },
     onToggleSpeed: () => {
       toggleSpeed();
-    },
-    onToggleDebug: () => {
-      const isDebug = toggleDebugMode();
-      updateDebugButton(isDebug);
-      // 如果开启调试模式，重新渲染格子标记
-      if (isDebug && state) {
-        const level = LEVELS[state.currentLevelIndex];
-        renderGridMarkers(level, state.towers, state.enemies);
-      }
     },
     onNextLevel: () => {
       if (state && state.currentLevelIndex < LEVELS.length - 1) {
@@ -308,9 +375,19 @@ export function initGame() {
   uiElements.gameField.addEventListener("mousemove", handleFieldMouseMove);
   uiElements.gameField.addEventListener("click", handleFieldClick);
 
-  // 初次進入顯示開始界面
-  showStartScreen();
-  updatePauseButton(false);
+    // 初次進入顯示開始界面
+    showStartScreen();
+    updatePauseButton(false);
+  } catch (error) {
+    console.error("[initGame] 初始化失败：", error);
+    // 显示错误信息
+    const errorEl = document.getElementById("game-error");
+    if (errorEl) {
+      errorEl.textContent = `游戏初始化失败：${error.message || error}。请打开控制台查看详细错误。`;
+      errorEl.style.display = "block";
+    }
+    throw error; // 重新抛出错误，让上层处理
+  }
 }
 
 /**
@@ -320,35 +397,51 @@ export function initGame() {
  */
 function createInitialState(levelIndex) {
   const level = LEVELS[levelIndex];
-  const totalEnemies = getTotalEnemiesForLevel(level);
+  const sanitizedWaves = sanitizeLevelWaves(level);
+  const totalEnemies = countEnemiesInWaves(sanitizedWaves);
+  
+  // 使用关卡配置中的能量设置，如果没有则使用默认值
+  const initialEnergy = level.initialEnergy !== undefined ? level.initialEnergy : INITIAL_ENERGY;
+  const maxEnergy = level.maxEnergy !== undefined ? level.maxEnergy : MAX_ENERGY;
+  const energyRegenPerSecond = level.energyRegenPerSecond !== undefined ? level.energyRegenPerSecond : ENERGY_REGEN_PER_SECOND;
   
   /** @type {GameState} */
   const s = {
     towers: [],
     enemies: [],
+    bullets: [], // 子弹数组
     baseHp: INITIAL_BASE_HP,
     maxBaseHp: INITIAL_BASE_HP,
-    energy: INITIAL_ENERGY,
-    maxEnergy: MAX_ENERGY,
-    waveIndex: 0,
+    energy: initialEnergy,
+    maxEnergy: maxEnergy,
+    energyRegenPerSecond: energyRegenPerSecond, // 存储关卡的能量回复速度
+    currentWaveIndex: 0,
     running: false,
     paused: false,
     phase: "menu", // 初始為菜單階段
     handCards: getInitialHand(),
     lastFrameTime: performance.now(),
-    waveFinishedSpawning: false,
+    isSpawningWave: false,
+    waveSpawnFinished: false,
+    isWaveCleared: false,
     spawnCursor: 0,
     spawnedInCurrentGroup: 0,
     timeSinceLastSpawn: 0,
-    timeSinceWaveCleared: 0,
+    waveClearDelayRemaining: 0,
     logicTime: 0,
     speedMultiplier: 1,
     currentLevelIndex: levelIndex,
     enemiesKilledInLevel: 0,
     totalEnemiesInLevel: totalEnemies,
-    currentLevelWaves: level.waves,
+    currentLevelWaves: sanitizedWaves,
     pauseStartTime: null, // 暫停開始時間，null 表示未暫停
+    itemManager: new ItemManager(uiElements.gameField, null), // 稍后设置gameState引用
   };
+  
+  // 设置itemManager的gameState引用
+  s.itemManager.gameState = s;
+  s.itemManager.updateInventoryUI();
+  
   return s;
 }
 
@@ -373,6 +466,13 @@ export function startGame(levelIndex = 0) {
   hideStartScreen();
   hideResultOverlays();
   hideLevelComplete();
+  
+  // 初始化道具管理器
+  if (state.itemManager) {
+    state.itemManager.cleanup();
+    state.itemManager.gameState = state;
+    state.itemManager.updateInventoryUI();
+  }
 
   // 設置當前關卡的出生點
   currentSpawnPoints = level.spawnPoints || [];
@@ -407,12 +507,13 @@ export function startGame(levelIndex = 0) {
   const bestRecord = loadBestRecord();
   updateBestRecord(bestRecord);
   updateHp(state.baseHp, state.maxBaseHp);
-  updateEnergy(state.energy, state.maxEnergy);
+  const energyRegen = state.energyRegenPerSecond !== undefined ? state.energyRegenPerSecond : ENERGY_REGEN_PER_SECOND;
+  updateEnergy(state.energy, state.maxEnergy, energyRegen);
   // 使用新的整合函数更新战局进度
   updateBattleProgress(
     levelIndex,
     level.name,
-    state.waveIndex,
+    state.currentWaveIndex,
     state.currentLevelWaves.length,
     state.enemiesKilledInLevel,
     state.totalEnemiesInLevel
@@ -456,8 +557,8 @@ export function startGame(levelIndex = 0) {
   showPathPreview(level);
   highlightObstacles();
   
-  // 初始化调试模式（如果开启）
-  if (getDebugMode()) {
+  // 【新逻辑】初始化调试模式（通过featureFlags.debugOverlay控制）
+  if (featureFlags.debugOverlay && getDebugMode()) {
     renderGridMarkers(level, state.towers, state.enemies);
   }
   
@@ -466,7 +567,7 @@ export function startGame(levelIndex = 0) {
   const baseGrid = getBaseGrid(level);
   if (baseGrid && spawnPointsGrid.length > 0) {
     const testIsWalkable = (row, col) => {
-      return isWalkable(row, col, state.towers, state.enemies, level, null, null, true);
+      return isWalkable(row, col, state.towers, state.enemies, level, null, null, true, state);
     };
     
     let hasInitialPath = false;
@@ -513,7 +614,7 @@ export function startGame(levelIndex = 0) {
       state.logicTime = 0;
       updatePauseButton(false);
       updateSpeedButton(state.speedMultiplier);
-      showWaveToast(`第 ${state.waveIndex + 1} 波開始`, "start");
+      startWave(0);
       if (animationFrameId !== null) {
         cancelAnimationFrame(animationFrameId);
       }
@@ -737,12 +838,13 @@ function updateGameState(delta, now) {
   state.logicTime += scaledDelta;
   const logicNow = state.logicTime;
 
-  // 能量恢復：受到遊戲速度倍率影響
+  // 能量恢復：使用关卡配置的能量回复速度，受到遊戲速度倍率影響
+  const energyRegen = state.energyRegenPerSecond !== undefined ? state.energyRegenPerSecond : ENERGY_REGEN_PER_SECOND;
   state.energy = Math.min(
     state.maxEnergy,
-    state.energy + ENERGY_REGEN_PER_SECOND * dtSeconds
+    state.energy + energyRegen * dtSeconds
   );
-  updateEnergy(state.energy, state.maxEnergy);
+  updateEnergy(state.energy, state.maxEnergy, energyRegen);
   updateHandEnergyState(state.energy);
 
   // 波次與敵人生成
@@ -756,10 +858,10 @@ function updateGameState(delta, now) {
   const mapSize = getMapSize();
   const baseGrid = getBaseGrid(level);
   
-  // 创建isWalkable函数，用于敌人寻路
+  // 【新逻辑】创建isWalkable函数，用于敌人寻路（通过featureFlags.newPathfinding控制）
   // 注意：敌人寻路时应该允许到达BASE和入口点（allowBaseAndSpawn = true）
   const enemyIsWalkable = (row, col) => {
-    return isWalkable(row, col, state.towers, state.enemies, level, null, null, true);
+    return isWalkable(row, col, state.towers, state.enemies, level, null, null, true, state);
   };
   
   updateEnemies(
@@ -788,11 +890,11 @@ function updateGameState(delta, now) {
     mapSize.width,
     mapSize.height,
     baseGrid,
-    state.towers // 传递塔列表，用于智能敌人的危险度计算
+    featureFlags.multiEnemyTypes ? state.towers : []
   );
 
-  // 调试模式：更新敌人路径可视化和穿墙检测
-  if (getDebugMode()) {
+  // 【新逻辑】调试模式：更新敌人路径可视化和穿墙检测（通过featureFlags.debugOverlay控制）
+  if (featureFlags.debugOverlay && getDebugMode()) {
     updateEnemyPaths(state.enemies, baseGrid);
     
     // 检测所有敌人的穿墙问题
@@ -809,8 +911,16 @@ function updateGameState(delta, now) {
   // 腳本注入怪干擾塔：靠近塔時可能暫時禁用塔
   applyScriptDisruption(state.towers, state.enemies, logicNow);
 
-  // 塔攻擊敵人
-  updateTowers(state.towers, state.enemies, logicNow);
+  // 塔攻擊敵人（生成子弹）
+  updateTowers(state.towers, state.enemies, logicNow, state.bullets, uiElements.gameField);
+
+  // 更新子弹位置（使用缩放后的时间差，受游戏速度倍率影响）
+  updateBullets(state.bullets, dtSeconds, state.enemies, uiElements.gameField);
+
+  // 更新道具系统
+  if (state.itemManager && state.phase === "battle") {
+    state.itemManager.update(logicNow, state.enemies);
+  }
 
   // 清理死亡敵人與無效塔
   state.enemies = state.enemies.filter((e) => e.alive);
@@ -821,28 +931,75 @@ function updateGameState(delta, now) {
 }
 
 /**
+ * 啟動指定波次。
+ * @param {number} waveIndex
+ */
+function startWave(waveIndex) {
+  if (!state) return;
+  const waves = state.currentLevelWaves;
+  const totalWaves = waves.length;
+  if (totalWaves === 0) {
+    console.warn("[wave] 當前關卡沒有可用的波次配置。");
+    state.currentWaveIndex = 0;
+    state.waveSpawnFinished = true;
+    state.isSpawningWave = false;
+    return;
+  }
+
+  if (waveIndex >= totalWaves) {
+    state.currentWaveIndex = totalWaves;
+    state.isSpawningWave = false;
+    state.waveSpawnFinished = true;
+    return;
+  }
+
+  state.currentWaveIndex = waveIndex;
+  state.isSpawningWave = true;
+  state.waveSpawnFinished = false;
+  state.isWaveCleared = false;
+  state.waveClearDelayRemaining = 0;
+  state.spawnCursor = 0;
+  state.spawnedInCurrentGroup = 0;
+  state.timeSinceLastSpawn = 0;
+
+  updateWave(waveIndex, totalWaves);
+  const level = LEVELS[state.currentLevelIndex];
+  updateBattleProgress(
+    state.currentLevelIndex,
+    level.name,
+    waveIndex,
+    totalWaves,
+    state.enemiesKilledInLevel,
+    state.totalEnemiesInLevel
+  );
+
+  const waveId = waves[waveIndex]?.id ?? waveIndex + 1;
+  showWaveToast(`第 ${waveId} 波開始`, "start");
+}
+
+/**
  * 更新波次生成與切換。
  * @param {number} delta
  */
 function updateWaveSpawning(delta) {
   if (!state) return;
-  const totalWaves = state.currentLevelWaves.length;
-  if (state.waveIndex >= totalWaves) {
-    // 所有波配置已完成，不再生成新的敵人
+  const waves = state.currentLevelWaves;
+  const totalWaves = waves.length;
+  if (totalWaves === 0 || state.currentWaveIndex >= totalWaves) {
     return;
   }
 
-  const wave = state.currentLevelWaves[state.waveIndex];
+  const wave = waves[state.currentWaveIndex];
 
-  if (!state.waveFinishedSpawning) {
-    const group = wave.enemies[state.spawnCursor];
+  if (state.isSpawningWave) {
+    const group = wave?.enemies[state.spawnCursor];
     if (!group) {
-      state.waveFinishedSpawning = true;
+      state.isSpawningWave = false;
+      state.waveSpawnFinished = true;
       return;
     }
 
-      state.timeSinceLastSpawn += delta;
-
+    state.timeSinceLastSpawn += delta;
     if (
       state.spawnedInCurrentGroup < group.count &&
       state.timeSinceLastSpawn >= group.interval
@@ -853,16 +1010,18 @@ function updateWaveSpawning(delta) {
         uiElements.gameField,
         /** @type any */ (group.type),
         currentSpawnPoints,
-        null, // previewPaths已废弃，保留兼容性
-        level.basePosition || null
+        null,
+        level.basePosition || null,
+        group.hpMultiplier ?? 1,
+        group.speedMultiplier ?? 1
       );
-      state.enemies.push(enemy);
-      
-      // 敌人生成时标记需要立即计算路径（路径为空，在updateEnemies中会自动计算）
-      // 这样可以确保敌人生成后第一次更新时就能获得路径并开始移动
-      enemy.needsPathRecalculation = true;
-      console.log(`[updateWaveSpawning] 敌人 ${enemy.id} 生成，位置(${enemy.row},${enemy.col})，等待计算路径`);
-      
+      if (enemy) {
+        state.enemies.push(enemy);
+        enemy.needsPathRecalculation = true;
+        console.log(
+          `[updateWaveSpawning] 敌人 ${enemy.id} 生成，位置(${enemy.row},${enemy.col})`
+        );
+      }
       state.spawnedInCurrentGroup++;
     }
 
@@ -871,35 +1030,44 @@ function updateWaveSpawning(delta) {
       state.spawnedInCurrentGroup = 0;
       state.timeSinceLastSpawn = 0;
       if (state.spawnCursor >= wave.enemies.length) {
-        state.waveFinishedSpawning = true;
+        state.isSpawningWave = false;
+        state.waveSpawnFinished = true;
       }
     }
-  } else {
-    // 當前波所有敵人生成完畢，等待全部被消滅後，延遲一段時間進入下一波
-    const aliveEnemies = state.enemies.some((e) => e.alive);
-    if (!aliveEnemies) {
-      // 第一次清空該波敵人時給出提示
-      if (state.timeSinceWaveCleared === 0) {
-        showWaveToast(`第 ${wave.id} 波已清除`, "clear");
-      }
-      state.timeSinceWaveCleared += delta;
-      if (state.timeSinceWaveCleared >= wave.delayAfter) {
-        state.waveIndex++;
-        if (state.waveIndex < totalWaves) {
-          // 初始化下一波
-          state.waveFinishedSpawning = false;
-          state.spawnCursor = 0;
-          state.spawnedInCurrentGroup = 0;
-          state.timeSinceLastSpawn = 0;
-          state.timeSinceWaveCleared = 0;
-          updateWave(state.waveIndex, totalWaves);
-          showWaveToast(`第 ${state.waveIndex + 1} 波開始`, "start");
-        }
-      }
-    } else {
-      state.timeSinceWaveCleared = 0;
+    return;
+  }
+
+  if (!state.waveSpawnFinished) {
+    return;
+  }
+
+  const aliveEnemies = state.enemies.some((enemy) => enemy.alive);
+  if (aliveEnemies) {
+    state.isWaveCleared = false;
+    state.waveClearDelayRemaining = resolveWaveDelay(wave);
+    return;
+  }
+
+  if (!state.isWaveCleared) {
+    state.isWaveCleared = true;
+    state.waveClearDelayRemaining = resolveWaveDelay(wave);
+    const waveId = wave?.id ?? state.currentWaveIndex + 1;
+    showWaveToast(`第 ${waveId} 波已清除`, "clear");
+  }
+
+  if (state.currentWaveIndex === totalWaves - 1) {
+    state.currentWaveIndex = totalWaves;
+    return;
+  }
+
+  if (state.waveClearDelayRemaining > 0) {
+    state.waveClearDelayRemaining = Math.max(0, state.waveClearDelayRemaining - delta);
+    if (state.waveClearDelayRemaining > 0) {
+      return;
     }
   }
+
+  startWave(state.currentWaveIndex + 1);
 }
 
 /**
@@ -951,12 +1119,14 @@ function applyScriptDisruption(towers, enemies, now) {
 }
 
 /**
- * 更新塔攻擊敵人。
+ * 更新塔攻擊敵人（生成子弹）。
  * @param {Tower[]} towers
  * @param {Enemy[]} enemies
  * @param {number} now
+ * @param {Array} bullets 子弹数组
+ * @param {HTMLElement} gameField 战场DOM
  */
-function updateTowers(towers, enemies, now) {
+function updateTowers(towers, enemies, now, bullets, gameField) {
   for (const tower of towers) {
     if (!tower.alive) continue;
 
@@ -974,13 +1144,10 @@ function updateTowers(towers, enemies, now) {
     const tx = tr.left + tr.width / 2;
     const ty = tr.top + tr.height / 2;
 
-    /** @type {Enemy | null} */
-    let nearestEnemy = null;
-    let nearestDist = Infinity;
-
     /** @type {Enemy[]} */
     const inRangeEnemies = [];
 
+    // 收集在射程内的敌人
     for (const enemy of enemies) {
       if (!enemy.alive) continue;
       const er = enemy.el.getBoundingClientRect();
@@ -991,39 +1158,158 @@ function updateTowers(towers, enemies, now) {
       const dy = ey - ty;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
-      if (dist <= tower.range) {
-        inRangeEnemies.push(enemy);
+      // 检查是否在射程内
+      if (dist > tower.range) continue;
+      
+      // 检查是否在最小攻击距离内（如果设置了minRange）
+      const minRange = tower.minRange || 0;
+      if (dist < minRange) continue;
+
+      inRangeEnemies.push(enemy);
+    }
+
+    if (inRangeEnemies.length === 0) continue;
+
+    // 根据目标选择策略选择目标
+    let target = null;
+    if (tower.targetStrategy === "strongest") {
+      // 选择血量最高的敌人
+      let maxHp = -1;
+      for (const enemy of inRangeEnemies) {
+        if (enemy.hp > maxHp) {
+          maxHp = enemy.hp;
+          target = enemy;
+        }
+      }
+    } else {
+      // 默认选择首个进入射程的敌人（"first"策略）
+      // 这里简化为选择最近的敌人
+      let nearestDist = Infinity;
+      for (const enemy of inRangeEnemies) {
+        const er = enemy.el.getBoundingClientRect();
+        const ex = er.left + er.width / 2;
+        const ey = er.top + er.height / 2;
+        const dx = ex - tx;
+        const dy = ey - ty;
+        const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist < nearestDist) {
           nearestDist = dist;
-          nearestEnemy = enemy;
+          target = enemy;
         }
       }
     }
 
-    if (!nearestEnemy) continue;
+    if (!target) continue;
 
-    // 計算實際傷害（考慮敵人護甲）
-    const calculateDamage = (enemy, baseDamage) => {
-      const armor = enemy.armor || 0;
-      return Math.max(1, Math.floor(baseDamage * (1 - armor))); // 至少造成1點傷害
-    };
+    // 获取目标位置
+    const targetRect = target.el.getBoundingClientRect();
+    const targetX = targetRect.left + targetRect.width / 2;
+    const targetY = targetRect.top + targetRect.height / 2;
 
-    // 產生一次攻擊（邏輯扣血 + 視覺反饋）
-    if (tower.aoe) {
-      // 範圍攻擊：所有在射程內的敵人都受到傷害
-      for (const enemy of inRangeEnemies) {
-        const actualDamage = calculateDamage(enemy, tower.damage);
-        enemy.hp -= actualDamage;
-      }
-      playTowerAttackEffects(tower, nearestEnemy, inRangeEnemies);
-    } else {
-      const actualDamage = calculateDamage(nearestEnemy, tower.damage);
-      nearestEnemy.hp -= actualDamage;
-      playTowerAttackEffects(tower, nearestEnemy, nearestEnemy ? [nearestEnemy] : []);
-    }
+    // 创建子弹
+    const bulletSpeed = tower.bulletSpeed || 400;
+    const bulletStyle = tower.bulletStyle || "fast";
+    const bullet = createBullet(
+      gameField,
+      tx,
+      ty,
+      targetX,
+      targetY,
+      bulletSpeed,
+      tower.damage,
+      bulletStyle,
+      target,
+      tower.aoeRadius || 0,
+      tower.aoeDamage || 0
+    );
+    bullets.push(bullet);
+
+    // 播放塔攻击效果
+    playTowerAttackEffects(tower, target, [target]);
 
     tower.lastAttackTime = now;
   }
+}
+
+/**
+ * 更新子弹位置并处理命中
+ * @param {Array} bullets 子弹数组
+ * @param {number} dtSeconds 时间差（秒）
+ * @param {Enemy[]} enemies 敌人数组
+ * @param {HTMLElement} gameField 战场DOM
+ */
+function updateBullets(bullets, dtSeconds, enemies, gameField) {
+  const calculateDamage = (enemy, baseDamage) => {
+    const armor = enemy.armor || 0;
+    return Math.max(1, Math.floor(baseDamage * (1 - armor)));
+  };
+
+  for (const bullet of bullets) {
+    if (!bullet.alive) continue;
+
+    // 更新子弹位置
+    const reached = updateBullet(bullet, dtSeconds);
+    
+    if (reached) {
+      // 子弹到达目标位置，处理伤害
+      if (bullet.style === "explosive" && bullet.aoeRadius > 0) {
+        // 爆炸型子弹：对范围内所有敌人造成伤害
+        const hitEnemies = [];
+        for (const enemy of enemies) {
+          if (!enemy.alive) continue;
+          const dx = bullet.x - enemy.x;
+          const dy = bullet.y - enemy.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist <= bullet.aoeRadius) {
+            const actualDamage = calculateDamage(enemy, bullet.aoeDamage || bullet.damage);
+            enemy.hp -= actualDamage;
+            hitEnemies.push(enemy);
+          }
+        }
+        playBulletHitEffect(gameField, bullet, bullet.x, bullet.y);
+      } else {
+        // 单体伤害子弹
+        if (bullet.target && bullet.target.alive) {
+          const actualDamage = calculateDamage(bullet.target, bullet.damage);
+          bullet.target.hp -= actualDamage;
+        }
+        playBulletHitEffect(gameField, bullet, bullet.x, bullet.y);
+      }
+      bullet.alive = false;
+    } else {
+      // 检查是否命中目标（飞行过程中）
+      if (bullet.target && bullet.target.alive) {
+        if (checkBulletHit(bullet, bullet.target)) {
+          // 命中目标
+          if (bullet.style === "explosive" && bullet.aoeRadius > 0) {
+            // 爆炸型：对范围内所有敌人造成伤害
+            const hitEnemies = [];
+            for (const enemy of enemies) {
+              if (!enemy.alive) continue;
+              const dx = bullet.x - enemy.x;
+              const dy = bullet.y - enemy.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist <= bullet.aoeRadius) {
+                const actualDamage = calculateDamage(enemy, bullet.aoeDamage || bullet.damage);
+                enemy.hp -= actualDamage;
+                hitEnemies.push(enemy);
+              }
+            }
+            playBulletHitEffect(gameField, bullet, bullet.x, bullet.y);
+          } else {
+            // 单体伤害
+            const actualDamage = calculateDamage(bullet.target, bullet.damage);
+            bullet.target.hp -= actualDamage;
+            playBulletHitEffect(gameField, bullet, bullet.x, bullet.y);
+          }
+          bullet.alive = false;
+        }
+      }
+    }
+  }
+
+  // 清理死亡的子弹
+  cleanupBullets(bullets);
 }
 
 /**
@@ -1090,7 +1376,8 @@ function checkGameEnd() {
 
   if (state.baseHp <= 0) {
     // 失敗
-    const reachedWave = state.waveIndex + 1;
+    const totalWaves = state.currentLevelWaves.length;
+    const reachedWave = Math.min(state.currentWaveIndex + 1, totalWaves);
     saveBestRecord(reachedWave);
     const best = loadBestRecord();
     updateBestRecord(best);
@@ -1102,7 +1389,7 @@ function checkGameEnd() {
 
   const totalWaves = state.currentLevelWaves.length;
 
-  if (state.waveIndex >= totalWaves && state.enemies.length === 0) {
+  if (state.currentWaveIndex >= totalWaves && state.enemies.length === 0) {
     // 當前關卡所有波完成且無存活敵人 -> 關卡完成
     state.running = false;
     
@@ -1190,8 +1477,8 @@ function handleFieldMouseMove(ev) {
     towerPreviewEl.style.top = `${lastMousePos.y}px`;
   }
   
-  // 调试模式：显示塔放置预览（路径和可放置性）- 仅在放置塔模式下显示
-  if (getDebugMode() && state && selectedAction && selectedAction.mode === "place-tower") {
+  // 【新逻辑】调试模式：显示塔放置预览（路径和可放置性）- 仅在放置塔模式下显示（通过featureFlags.debugOverlay控制）
+  if (featureFlags.debugOverlay && getDebugMode() && state && selectedAction && selectedAction.mode === "place-tower") {
     const level = LEVELS[state.currentLevelIndex];
     const mapSize = getMapSize();
     const baseGrid = getBaseGrid(level);
@@ -1200,7 +1487,7 @@ function handleFieldMouseMove(ev) {
     // 创建isWalkable函数用于调试预览
     // 注意：调试预览时不需要允许BASE和入口可走，因为这是用于检查塔放置的
     const debugIsWalkable = (row, col) => {
-      return isWalkable(row, col, state.towers, state.enemies, level, null, null, false);
+      return isWalkable(row, col, state.towers, state.enemies, level, null, null, false, state);
     };
     
     updateTowerPlacementPreview(
@@ -1222,7 +1509,18 @@ function handleFieldMouseMove(ev) {
  * @param {MouseEvent} ev
  */
 function handleFieldClick(ev) {
-  if (!state || !selectedAction) return;
+  if (!state) return;
+  
+  // 检查是否在使用道具
+  if (state.itemManager && state.itemManager.usingItem) {
+    const rect = uiElements.gameField.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    state.itemManager.useItemAtTarget(x, y, state.enemies);
+    return;
+  }
+  
+  if (!selectedAction) return;
   
   // 允许在 setup 或 battle 阶段放塔，禁止在 menu 或 paused 阶段放塔
   if (state.phase !== "setup" && state.phase !== "battle") return;
@@ -1248,8 +1546,10 @@ function handleFieldClick(ev) {
     y = pixelPos.y;
 
     // 使用新的canPlaceTowerAt函数判断是否可以放置
-    if (!canPlaceTowerAt(x, y)) {
-      showWaveToast("不能完全堵死道路", "info");
+    const placementResult = canPlaceTowerAt(x, y);
+    if (!placementResult.canPlace) {
+      // 显示明确的错误提示
+      showPlacementError(placementResult.reason || "不能放置塔", x, y);
       return; // 不創建塔
     }
 
@@ -1281,26 +1581,27 @@ function handleFieldClick(ev) {
     updateEnergy(state.energy, state.maxEnergy);
     updateHandEnergyState(state.energy);
 
-    // 塔放置成功后，为所有活着的敌人重新计算路径
+    // 【新逻辑】塔放置成功后，为所有活着的敌人重新计算路径（通过featureFlags.newPathfinding控制）
     // 这样避免敌人沿旧路径穿过新放置的塔
-    console.log(`[handleFieldClick] 塔放置成功，为所有敌人重新计算路径`);
-    const level = LEVELS[state.currentLevelIndex];
-    const mapSize = getMapSize();
-    const baseGrid = getBaseGrid(level);
-    const enemyIsWalkable = (row, col) => {
-      return isWalkable(row, col, state.towers, state.enemies, level, null, null, true);
-    };
-    recalculateAllEnemyPaths(
-      state.enemies,
-      baseGrid,
-      enemyIsWalkable,
-      mapSize.width,
-      mapSize.height,
-      state.towers
-    );
+    if (featureFlags.newPathfinding) {
+      const level = LEVELS[state.currentLevelIndex];
+      const mapSize = getMapSize();
+      const baseGrid = getBaseGrid(level);
+      const enemyIsWalkable = (row, col) => {
+        return isWalkable(row, col, state.towers, state.enemies, level, null, null, true, state);
+      };
+      recalculateAllEnemyPaths(
+        state.enemies,
+        baseGrid,
+        enemyIsWalkable,
+        mapSize.width,
+        mapSize.height,
+        state.towers
+      );
+    }
 
-    // 调试模式：更新格子标记
-    if (getDebugMode()) {
+    // 【新逻辑】调试模式：更新格子标记（通过featureFlags.debugOverlay控制）
+    if (featureFlags.debugOverlay && getDebugMode()) {
       renderGridMarkers(level, state.towers, state.enemies);
     }
 
@@ -1677,9 +1978,10 @@ function getMapSize() {
  * @param {number} testTowerRow 测试放置的塔所在行（可选，用于判断塔放置）
  * @param {number} testTowerCol 测试放置的塔所在列（可选）
  * @param {boolean} allowBaseAndSpawn 是否允许BASE和入口点可走（用于敌人寻路，默认false）
+ * @param {GameState} [gameState] 游戏状态（可选，用于检查临时障碍物）
  * @returns {boolean} 如果可走返回true
  */
-function isWalkable(row, col, towers, enemies, level, testTowerRow = null, testTowerCol = null, allowBaseAndSpawn = false) {
+function isWalkable(row, col, towers, enemies, level, testTowerRow = null, testTowerCol = null, allowBaseAndSpawn = false, gameState = null) {
   const mapSize = getMapSize();
   
   // 检查边界
@@ -1720,7 +2022,7 @@ function isWalkable(row, col, towers, enemies, level, testTowerRow = null, testT
     }
   }
   
-  // 检查是否在障碍物上
+  // 检查是否在障碍物上（包括关卡配置的障碍物和临时障碍物）
   if (level.obstacles && level.obstacles.length > 0) {
     for (const obs of level.obstacles) {
       const obsX = obs.x * fieldRect.width;
@@ -1734,6 +2036,32 @@ function isWalkable(row, col, towers, enemies, level, testTowerRow = null, testT
         pixelPos.x <= obsX + obsWidth &&
         pixelPos.y >= obsY &&
         pixelPos.y <= obsY + obsHeight
+      ) {
+        return false;
+      }
+    }
+  }
+  
+  // 检查是否在临时障碍物上（由道具生成的临时障碍物）
+  if (gameState && gameState.itemManager) {
+    const tempBlocks = gameState.itemManager.gameField.querySelectorAll(".temporary-block");
+    for (const block of tempBlocks) {
+      const blockStyle = window.getComputedStyle(block);
+      const blockLeft = parseFloat(blockStyle.left);
+      const blockTop = parseFloat(blockStyle.top);
+      const blockWidth = parseFloat(blockStyle.width);
+      const blockHeight = parseFloat(blockStyle.height);
+      
+      // 临时障碍物使用translate(-50%, -50%)，所以中心点在left/top位置
+      const blockCenterX = blockLeft;
+      const blockCenterY = blockTop;
+      
+      // 检查格子中心是否在临时障碍物矩形内
+      if (
+        pixelPos.x >= blockCenterX - blockWidth / 2 &&
+        pixelPos.x <= blockCenterX + blockWidth / 2 &&
+        pixelPos.y >= blockCenterY - blockHeight / 2 &&
+        pixelPos.y <= blockCenterY + blockHeight / 2
       ) {
         return false;
       }
@@ -1809,12 +2137,11 @@ function getBaseGrid(level) {
  * 使用寻路算法判断放置后是否仍有从入口到BASE的路径
  * @param {number} tileX 塔的像素X坐标
  * @param {number} tileY 塔的像素Y坐标
- * @returns {boolean} 如果可以放置返回true
+ * @returns {{canPlace: boolean, reason?: string}} 如果可以放置返回{canPlace: true}，否则返回{canPlace: false, reason: string}
  */
 function canPlaceTowerAt(tileX, tileY) {
   if (!state) {
-    console.log("[canPlaceTowerAt] state 为空，返回 false");
-    return false;
+    return { canPlace: false, reason: "游戏未开始" };
   }
   
   const level = LEVELS[state.currentLevelIndex];
@@ -1823,59 +2150,116 @@ function canPlaceTowerAt(tileX, tileY) {
   // 转换为网格坐标
   const towerGrid = pixelToGrid(tileX, tileY);
   
-  console.log(`[canPlaceTowerAt] 检查位置: 像素(${tileX}, ${tileY}) -> 网格(${towerGrid.row}, ${towerGrid.col})`);
-  
   // 检查是否在地图范围内
   if (towerGrid.row < 0 || towerGrid.row >= mapSize.height || 
       towerGrid.col < 0 || towerGrid.col >= mapSize.width) {
-    console.log(`[canPlaceTowerAt] 超出地图范围: 地图大小=${mapSize.width}x${mapSize.height}`);
-    return false;
+    return { canPlace: false, reason: "超出地图范围" };
   }
   
   // 获取入口点和BASE
   const spawnPoints = getSpawnPointsGrid(level);
   const baseGrid = getBaseGrid(level);
   
-  console.log(`[canPlaceTowerAt] 入口点数量: ${spawnPoints.length}, BASE: ${baseGrid ? `(${baseGrid.row}, ${baseGrid.col})` : 'null'}`);
-  
   // 首先明确检查：不能在入口或BASE上放塔
   if (baseGrid && towerGrid.row === baseGrid.row && towerGrid.col === baseGrid.col) {
-    console.log(`[canPlaceTowerAt] 不能在BASE上放塔: BASE位于(${baseGrid.row}, ${baseGrid.col})`);
-    return false;
+    return { canPlace: false, reason: "不能覆盖基地" };
   }
   
   for (const spawn of spawnPoints) {
     if (towerGrid.row === spawn.row && towerGrid.col === spawn.col) {
-      console.log(`[canPlaceTowerAt] 不能在入口上放塔: 入口位于(${spawn.row}, ${spawn.col})`);
-      return false;
+      return { canPlace: false, reason: "不能覆盖入口" };
     }
   }
   
   if (!baseGrid || spawnPoints.length === 0) {
-    console.log(`[canPlaceTowerAt] 没有BASE或入口，允许放置（兼容旧关卡）`);
-    return true;
+    return { canPlace: true };
   }
   
+  // 【兜底模式/旧逻辑】简单的塔放置检查：只要不是障碍/base/出入口就允许放置
+  // 【新逻辑】使用寻路算法判断放置后是否仍有从入口到BASE的路径（通过featureFlags.newTowerBlockCheck控制）
+  if (!featureFlags.newTowerBlockCheck) {
+    // 旧逻辑：简单检查
+    // 检查是否已有塔
+    for (const tower of state.towers) {
+      if (!tower.alive) continue;
+      const existingTowerGrid = pixelToGrid(tower.x, tower.y);
+      if (towerGrid.row === existingTowerGrid.row && towerGrid.col === existingTowerGrid.col) {
+        return { canPlace: false, reason: "该位置已有塔" };
+      }
+    }
+    
+    // 检查是否在障碍物上
+    const fieldRect = uiElements.gameField.getBoundingClientRect();
+    const pixelPos = gridToPixel(towerGrid.row, towerGrid.col);
+    if (level.obstacles && level.obstacles.length > 0) {
+      for (const obs of level.obstacles) {
+        const obsX = obs.x * fieldRect.width;
+        const obsY = obs.y * fieldRect.height;
+        const obsWidth = obs.width * fieldRect.width;
+        const obsHeight = obs.height * fieldRect.height;
+        
+        if (
+          pixelPos.x >= obsX &&
+          pixelPos.x <= obsX + obsWidth &&
+          pixelPos.y >= obsY &&
+          pixelPos.y <= obsY + obsHeight
+        ) {
+          return { canPlace: false, reason: "不能覆盖障碍物" };
+        }
+      }
+    }
+    
+    // 旧逻辑：简单检查通过，允许放置
+    return { canPlace: true };
+  }
+  
+  // 【新逻辑】使用寻路算法检查是否堵路
   // 检查是否为空地且不是base/障碍（用于塔放置检查）
   const isWalkableNow = isWalkable(
     towerGrid.row, 
     towerGrid.col, 
     state.towers, 
     state.enemies, 
-    level
+    level,
+    null,
+    null,
+    false,
+    state
   );
   
   if (!isWalkableNow) {
-    console.log(`[canPlaceTowerAt] 该位置不可走（已有障碍物、塔或敌人）`);
-    return false;
-  }
-  
-  // 临时调试开关：跳过寻路检查
-  const DEBUG_IGNORE_BLOCK_CHECK = false; // 改为 true 可以临时跳过寻路检查
-  
-  if (DEBUG_IGNORE_BLOCK_CHECK) {
-    console.log(`[canPlaceTowerAt] 调试模式：跳过寻路检查，允许放置`);
-    return true;
+    // 检查具体原因
+    // 检查是否已有塔
+    for (const tower of state.towers) {
+      if (!tower.alive) continue;
+      const existingTowerGrid = pixelToGrid(tower.x, tower.y);
+      if (towerGrid.row === existingTowerGrid.row && towerGrid.col === existingTowerGrid.col) {
+        return { canPlace: false, reason: "该位置已有塔" };
+      }
+    }
+    
+    // 检查是否在障碍物上
+    const fieldRect = uiElements.gameField.getBoundingClientRect();
+    const pixelPos = gridToPixel(towerGrid.row, towerGrid.col);
+    if (level.obstacles && level.obstacles.length > 0) {
+      for (const obs of level.obstacles) {
+        const obsX = obs.x * fieldRect.width;
+        const obsY = obs.y * fieldRect.height;
+        const obsWidth = obs.width * fieldRect.width;
+        const obsHeight = obs.height * fieldRect.height;
+        
+        if (
+          pixelPos.x >= obsX &&
+          pixelPos.x <= obsX + obsWidth &&
+          pixelPos.y >= obsY &&
+          pixelPos.y <= obsY + obsHeight
+        ) {
+          return { canPlace: false, reason: "不能覆盖障碍物" };
+        }
+      }
+    }
+    
+    return { canPlace: false, reason: "该位置不可放置" };
   }
   
   // 创建一个特殊的isWalkable函数，用于寻路时：
@@ -1899,8 +2283,7 @@ function canPlaceTowerAt(tileX, tileY) {
     }
     
     // 其他情况使用正常的isWalkable检查，但允许BASE和入口点可走（用于寻路）
-    // 注意：不需要传递testTowerRow/testTowerCol，因为我们已经在这里检查过了
-    return isWalkable(row, col, state.towers, state.enemies, level, null, null, true);
+    return isWalkable(row, col, state.towers, state.enemies, level, null, null, true, state);
   };
   
   // 检查是否至少有一个入口到BASE有路径
@@ -1921,21 +2304,53 @@ function canPlaceTowerAt(tileX, tileY) {
     );
     
     if (path && path.length > 0) {
-      console.log(`[canPlaceTowerAt] 入口${i}(${spawn.row},${spawn.col}) -> BASE(${baseGrid.row},${baseGrid.col}): 找到路径，长度=${path.length}`);
       foundPath = true;
       break;
-    } else {
-      console.log(`[canPlaceTowerAt] 入口${i}(${spawn.row},${spawn.col}) -> BASE(${baseGrid.row},${baseGrid.col}): 无路径`);
     }
   }
   
   if (foundPath) {
-    console.log(`[canPlaceTowerAt] 至少有一个入口到BASE有路径，允许放置`);
-    return true;
+    return { canPlace: true };
   }
   
-  console.log(`[canPlaceTowerAt] 所有入口到BASE都无路径，禁止放置`);
-  return false;
+  return { canPlace: false, reason: "不能完全堵死道路" };
+}
+
+/**
+ * 显示塔放置错误提示
+ * @param {string} reason 错误原因
+ * @param {number} x 像素X坐标
+ * @param {number} y 像素Y坐标
+ */
+function showPlacementError(reason, x, y) {
+  // 创建错误提示元素
+  let errorTip = document.getElementById("tower-placement-error-tip");
+  
+  if (!errorTip) {
+    errorTip = document.createElement("div");
+    errorTip.id = "tower-placement-error-tip";
+    errorTip.className = "tower-placement-error-tip";
+    uiElements.gameField.appendChild(errorTip);
+  }
+  
+  errorTip.textContent = reason;
+  errorTip.style.left = `${x}px`;
+  errorTip.style.top = `${y - 40}px`;
+  errorTip.style.transform = "translate(-50%, 0)";
+  
+  // 显示提示
+  errorTip.classList.remove("tower-placement-error-tip--visible");
+  // 强制重绘
+  // @ts-ignore
+  void errorTip.offsetWidth;
+  errorTip.classList.add("tower-placement-error-tip--visible");
+  
+  // 1.5秒后隐藏
+  setTimeout(() => {
+    if (errorTip) {
+      errorTip.classList.remove("tower-placement-error-tip--visible");
+    }
+  }, 1500);
 }
 
 

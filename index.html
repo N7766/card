@@ -102,80 +102,63 @@
         </div>
       </div>
 
+      <!-- 错误显示区域 -->
+      <div id="game-error" style="display: none; position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #ff4444; color: white; padding: 15px 20px; border-radius: 8px; z-index: 10000; max-width: 80%; text-align: center; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"></div>
+
       <!-- 主游戏布局 -->
       <div id="game-layout">
-        <div id="game-field-wrapper">
-          <div id="game-field">
-            <!-- 基地 -->
-            <div id="base">BASE</div>
+        <!-- 顶部状态栏 -->
+        <div id="top-hud-bar">
+          <div class="top-stat-item top-stat-item--hp">
+            <span class="top-stat-label">基地生命：</span>
+            <div class="top-bar-container">
+              <div id="hp-bar" class="top-bar-fill top-bar-fill--hp"></div>
+            </div>
+            <span id="hp-text" class="top-stat-value">0 / 0</span>
+          </div>
+          <div class="top-stat-item top-stat-item--energy">
+            <span class="top-stat-label">能量：</span>
+            <div class="top-bar-container">
+              <div id="energy-bar" class="top-bar-fill top-bar-fill--energy"></div>
+            </div>
+            <span id="energy-text" class="top-stat-value">0 / 0</span>
           </div>
         </div>
 
-        <div id="ui-panel">
-          <div id="top-stats" class="status-bar">
-            <!-- 左块：生存状态 -->
-            <div class="status-block status-block--left">
-              <div class="stat-item">
-                <span class="stat-icon">🏰</span>
-                <span class="stat-label">基地生命：</span>
-                <div class="bar-container">
-                  <div id="hp-bar" class="bar-fill"></div>
-                </div>
-                <span id="hp-text" class="stat-value">0 / 0</span>
-              </div>
-              <div class="stat-item">
-                <span class="stat-icon energy-icon">⚡</span>
-                <span class="stat-label">能量：</span>
-                <div class="bar-container">
-                  <div id="energy-bar" class="bar-fill energy"></div>
-                </div>
-                <span id="energy-text" class="stat-value">0 / 0</span>
-              </div>
+        <!-- 游戏区域和右侧道具栏容器 -->
+        <div id="game-content-wrapper">
+          <div id="game-field-wrapper">
+            <div id="game-field">
+              <!-- 基地 -->
+              <div id="base">BASE</div>
             </div>
-            
-            <!-- 中块：战局进度（核心信息） -->
-            <div class="status-block status-block--center">
-              <div id="battle-progress" class="battle-progress">
-                <div class="battle-progress-main">
-                  <span id="level-text" class="battle-level">Level 1 · 入門訓練</span>
-                </div>
-                <div class="battle-progress-details">
-                  <span class="battle-detail-item">
-                    波次 <span id="wave-text" class="battle-wave">1 / 2</span>
-                  </span>
-                  <span class="battle-detail-separator">|</span>
-                  <span class="battle-detail-item">
-                    敌人 <span id="enemy-progress-text" class="battle-enemies">0 / 14</span>
-                  </span>
-                </div>
-              </div>
-            </div>
-            
-            <!-- 右块：控制按钮 -->
-            <div class="status-block status-block--right">
-              <div class="stat-item stat-item--best">
-                <span class="best-wave-label">Best Wave</span>
-                <span id="best-record-text" class="best-wave-value">-</span>
-              </div>
-              <div class="stat-controls">
-                <button id="btn-pause" class="btn-control">暂停</button>
-                <button id="btn-speed" class="btn-control">1x</button>
-                <button id="btn-debug" class="btn-control">调试</button>
-                <button id="btn-back-to-menu" class="btn-control btn-control--menu">主菜单</button>
-              </div>
-            </div>
-          </div>
-          
-          <!-- 增益信息（独立显示） -->
-          <div class="stat-item" id="active-buffs-container" style="display: none;">
-            <span>增益：</span>
-            <span id="active-buffs-text"></span>
           </div>
 
-          <div id="hand-panel">
-            <h3>手牌</h3>
-            <div id="hand-cards"></div>
+          <!-- 右侧道具栏 -->
+          <div id="right-item-panel">
+            <div id="item-inventory" class="item-inventory-vertical"></div>
           </div>
+        </div>
+
+        <!-- 底部控制栏 -->
+        <div id="bottom-control-panel">
+          <div class="bottom-control-center">
+            <div class="stat-item stat-item--best">
+              <span class="best-wave-label">BEST WAVE</span>
+              <span id="best-record-text" class="best-wave-value">-</span>
+            </div>
+            <div class="stat-controls">
+              <button id="btn-pause" class="btn-control">暂停</button>
+              <button id="btn-speed" class="btn-control">1x</button>
+              <button id="btn-back-to-menu" class="btn-control btn-control--menu">主菜单</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 手牌区域（底部） -->
+        <div id="hand-panel">
+          <h3>手牌</h3>
+          <div id="hand-cards"></div>
         </div>
       </div>
     </div>

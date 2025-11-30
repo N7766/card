@@ -2,7 +2,7 @@
  * 塔模組：負責創建塔 DOM 與對應數據結構，並應用樣式卡效果。
  */
 
-import { TOWER_STATS } from "./config.js";
+import { TOWER_STATS, TOWERS_CONFIG } from "./config.js";
 
 /** @typedef {import("./cards.js").Card} Card */
 
@@ -16,10 +16,16 @@ import { TOWER_STATS } from "./config.js";
  * @property {number} damage
  * @property {number} attackInterval
  * @property {number} lastAttackTime
- * @property {"div"|"button"|"img"} towerType
+ * @property {"div"|"button"|"img"|"tower1"|"tower2"|"tower3"} towerType
  * @property {boolean} alive
  * @property {boolean} aoe 是否為範圍攻擊塔
  * @property {number | undefined} [disabledUntil] 若被腳本怪干擾，該時間前無法攻擊
+ * @property {number} [minRange] 最小攻击距离
+ * @property {number} [bulletSpeed] 子弹速度
+ * @property {string} [bulletStyle] 子弹样式
+ * @property {"first"|"strongest"} [targetStrategy] 目标选择策略
+ * @property {number} [aoeRadius] 范围伤害半径
+ * @property {number} [aoeDamage] 范围伤害值
  */
 
 let towerIdCounter = 1;
@@ -27,7 +33,7 @@ let towerIdCounter = 1;
 /**
  * 創建塔元素並插入戰場。
  * @param {HTMLElement} gameField 戰場 DOM
- * @param {"div"|"button"|"img"} towerType
+ * @param {"div"|"button"|"img"|"tower1"|"tower2"|"tower3"} towerType
  * @param {number} x 在戰場中的 x 座標（像素）
  * @param {number} y 在戰場中的 y 座標（像素）
  * @param {string} label 顯示在塔上的短文字
@@ -35,20 +41,28 @@ let towerIdCounter = 1;
  * @returns {Tower}
  */
 export function createTower(gameField, towerType, x, y, label, now) {
-  const stats = TOWER_STATS[towerType];
+  // 优先使用新的TOWERS_CONFIG，如果没有则使用旧的TOWER_STATS
+  const newConfig = TOWERS_CONFIG[towerType];
+  const oldStats = TOWER_STATS[towerType];
+  
   const id = `tower-${towerIdCounter++}`;
 
-  const el = document.createElement(
-    towerType === "button" ? "button" : towerType === "img" ? "div" : "div"
-  );
+  const el = document.createElement("div");
   el.classList.add("tower");
 
+  // 设置塔的样式类
   if (towerType === "div") {
     el.classList.add("tower-div");
   } else if (towerType === "button") {
     el.classList.add("tower-button");
   } else if (towerType === "img") {
     el.classList.add("tower-img");
+  } else if (towerType === "tower1") {
+    el.classList.add("tower-tower1");
+  } else if (towerType === "tower2") {
+    el.classList.add("tower-tower2");
+  } else if (towerType === "tower3") {
+    el.classList.add("tower-tower3");
   }
 
   el.dataset.towerId = id;
@@ -66,14 +80,24 @@ export function createTower(gameField, towerType, x, y, label, now) {
     el,
     x,
     y,
-    range: stats.range,
-    damage: stats.damage,
-    attackInterval: stats.attackInterval,
+    range: newConfig ? newConfig.attackRange : oldStats.range,
+    damage: newConfig ? newConfig.attackDamage : oldStats.damage,
+    attackInterval: newConfig ? newConfig.attackInterval : oldStats.attackInterval,
     lastAttackTime: now,
     towerType,
     alive: true,
-    aoe: Boolean(stats.aoe),
+    aoe: newConfig ? Boolean(newConfig.aoeRadius) : Boolean(oldStats.aoe),
   };
+  
+  // 如果是新塔类型，添加新属性
+  if (newConfig) {
+    tower.minRange = newConfig.minRange || 0;
+    tower.bulletSpeed = newConfig.bulletSpeed;
+    tower.bulletStyle = newConfig.bulletStyle;
+    tower.targetStrategy = newConfig.targetStrategy;
+    tower.aoeRadius = newConfig.aoeRadius || 0;
+    tower.aoeDamage = newConfig.aoeDamage || 0;
+  }
 
   // 如果是 button 塔，點擊時可觸發微弱 buff（示例）
   if (towerType === "button") {
