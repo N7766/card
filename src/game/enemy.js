@@ -4,7 +4,15 @@
  * 支持多种特殊敌人类型：冲刺型、吞噬型、智能绕路型、治疗型等。
  */
 
-import { ENEMY_CONFIGS, ENEMY_STATS, ENEMY_DAMAGE_TO_BASE, BASE_RADIUS, BOSS_CONFIG, getEnemyVisualSpec } from "./config.js";
+import {
+  ENEMY_CONFIGS,
+  ENEMY_STATS,
+  ENEMY_DAMAGE_TO_BASE,
+  BASE_RADIUS,
+  BOSS_CONFIG,
+  getEnemyVisualSpec,
+  ENEMY_TYPES,
+} from "./config.js";
 import { pixelToGrid, gridToPixel, findPath, GRID_CONFIG } from "./pathfinding.js";
 import { featureFlags } from "./featureFlags.js";
 import { getDebugMode } from "./debug.js";
@@ -20,6 +28,7 @@ import { getDebugMode } from "./debug.js";
  * 未来逻辑正常后，可以删掉这个开关或默认设置为 false
  */
 const USE_FALLBACK_MOVEMENT_WHEN_NO_PATH = true;
+const SHIELD_BREAK_FLASH_MS = 420;
 
 /**
  * 判断是否需要输出敌人移动调试日志
@@ -64,6 +73,9 @@ function logEnemyCollisionAttempt(enemy, targetRow, targetCol, context) {
  * @property {number} speed 像素/秒（当前实际速度，可能被特殊行为修改）
  * @property {number} hp
  * @property {number} maxHp
+ * @property {number} [maxShield]
+ * @property {number} [currentShield]
+ * @property {number} [shieldBreakTimer]
  * @property {"normal"|"sprinter"|"devourer"|"smart"|"healer"|"ad"|"banner"|"script"} enemyType
  * @property {boolean} alive
  * @property {number} rewardEnergy 击杀后提供的能量奖励
@@ -327,6 +339,44 @@ function checkDevourerConsumption(devourer, allEnemies, deadEnemies) {
       break;
     }
   }
+}
+
+/**
+ * 對敵人套用傷害，優先消耗護盾。
+ * @param {Enemy} enemy
+ * @param {number} damage
+ * @param {{ignoreShield?: boolean}} [options]
+ * @returns {{hpDamage:number,shieldDamage:number}}
+ */
+export function applyDamageToEnemy(enemy, damage, options = {}) {
+  if (!enemy || !enemy.alive) {
+    return { hpDamage: 0, shieldDamage: 0 };
+  }
+  const effectiveDamage = Math.max(0, damage || 0);
+  if (effectiveDamage === 0) {
+    return { hpDamage: 0, shieldDamage: 0 };
+  }
+
+  let remaining = effectiveDamage;
+  let shieldDamage = 0;
+
+  if (!options.ignoreShield && enemy.currentShield && enemy.currentShield > 0) {
+    const absorbed = Math.min(enemy.currentShield, remaining);
+    enemy.currentShield -= absorbed;
+    shieldDamage = absorbed;
+    remaining -= absorbed;
+    if (enemy.currentShield <= 0 && absorbed > 0) {
+      enemy.currentShield = 0;
+      enemy.shieldBreakTimer = SHIELD_BREAK_FLASH_MS;
+      enemy.el.classList.add("enemy-shield-breaking");
+    }
+  }
+
+  if (remaining > 0) {
+    enemy.hp = Math.max(0, enemy.hp - remaining);
+  }
+
+  return { hpDamage: remaining, shieldDamage };
 }
 
 /**
@@ -700,7 +750,10 @@ export function spawnEnemy(
     return null;
   }
   
-  const rect = gameField.getBoundingClientRect();
+  const rect = {
+    width: gameField.offsetWidth || gameField.clientWidth || 0,
+    height: gameField.offsetHeight || gameField.clientHeight || 0,
+  };
 
   let pixelX = 0;
   let pixelY = 0;
@@ -800,7 +853,10 @@ export function spawnEnemy(
   hpBar.className = "enemy-hp-bar";
   const hpFill = document.createElement("div");
   hpFill.className = "enemy-hp-fill";
+  const shieldFill = document.createElement("div");
+  shieldFill.className = "enemy-shield-fill";
   hpBar.appendChild(hpFill);
+  hpBar.appendChild(shieldFill);
   el.appendChild(hpBar);
 
   el.style.left = `${pixelX}px`;
@@ -817,6 +873,8 @@ export function spawnEnemy(
   // 应用波次配置中的血量和速度系数
   const maxHp = Math.floor(baseMaxHp * hpMultiplier);
   const moveSpeed = baseMoveSpeed * speedMultiplier;
+  const baseShield = config?.maxShield || 0;
+  const initialShield = Math.max(0, Math.round(baseShield * hpMultiplier));
   
   /** @type {Enemy} */
   const enemy = {
@@ -840,6 +898,10 @@ export function spawnEnemy(
     isBoss: actualType === "boss",
     displayName: (config && config.displayName) || actualType.toUpperCase(),
     hitRadius: visualSpec?.hitRadius ?? 20,
+    maxShield: initialShield,
+    currentShield: initialShield,
+    shieldBreakTimer: 0,
+    parasiteState: null,
   };
   
   if (options?.spawnedByBoss) {
@@ -868,6 +930,33 @@ export function spawnEnemy(
       // 添加治疗型标记（用于后续渲染治疗范围）
       el.classList.add("enemy-healer-type");
     }
+  }
+
+  if (actualType === ENEMY_TYPES.COURIER) {
+    enemy.el.classList.add("enemy-courier");
+    enemy.courierShieldBonus =
+      (specialBehavior && specialBehavior.shieldBonusRatio) || 0.35;
+  } else if (actualType === ENEMY_TYPES.SYMBIOTE && specialBehavior) {
+    enemy.symbioteConfig = {
+      parasiteCount: specialBehavior.parasiteCount ?? 3,
+      shieldRatio: specialBehavior.parasiteShieldRatio ?? 0.25,
+      regen: specialBehavior.parasiteRegenPerSecond ?? 4,
+      duration: specialBehavior.parasiteDuration ?? 6000,
+    };
+    enemy.el.classList.add("enemy-symbiote");
+  } else if (actualType === ENEMY_TYPES.JAMMER && specialBehavior) {
+    enemy.jammerAuraRadius = specialBehavior.auraRadius ?? 150;
+    enemy.jammerSlowMultiplier = specialBehavior.slowMultiplier ?? 1.3;
+    enemy.jammerMaxStacks = specialBehavior.maxStacks ?? 2;
+    enemy.el.classList.add("enemy-jammer");
+    const aura = document.createElement("div");
+    aura.className = "enemy-jammer-aura";
+    const diameter = (enemy.jammerAuraRadius || 0) * 2;
+    aura.style.width = `${diameter}px`;
+    aura.style.height = `${diameter}px`;
+    aura.style.marginLeft = `${-enemy.jammerAuraRadius}px`;
+    aura.style.marginTop = `${-enemy.jammerAuraRadius}px`;
+    enemy.el.appendChild(aura);
   }
 
   if (actualType === "boss") {
@@ -1006,6 +1095,7 @@ export function updateEnemies(
   const PATH_UPDATE_INTERVAL = 200; // 路径更新间隔（毫秒），用于性能优化
   const bossOptions = extraOptions || {};
   const pendingSummons = [];
+  const pendingParasites = [];
   const bossContext = {
     gameField: bossOptions.gameField || null,
     spawnPoints: bossOptions.spawnPoints || null,
@@ -1030,6 +1120,27 @@ export function updateEnemies(
         checkDevourerConsumption(enemy, enemies, deadEnemyPositions);
       } else if (enemy.enemyType === "healer") {
         updateHealerBehavior(enemy, enemies, deltaTime);
+      }
+    }
+
+    if (enemy.parasiteState) {
+      enemy.parasiteState.remaining -= deltaTime;
+      if (enemy.parasiteState.remaining <= 0) {
+        enemy.parasiteState = null;
+        enemy.el.classList.remove("enemy-parasitized");
+      } else if (enemy.parasiteState.regenPerSecond > 0) {
+        const regenAmount = (enemy.parasiteState.regenPerSecond * deltaTime) / 1000;
+        enemy.hp = Math.min(enemy.maxHp, enemy.hp + regenAmount);
+      }
+    }
+
+    if (enemy.enemyType === ENEMY_TYPES.COURIER) {
+      enemy.trailTimer = (enemy.trailTimer || 0) + deltaTime;
+      if (enemy.trailTimer >= 70) {
+        enemy.trailTimer = 0;
+        if (bossOptions.gameField) {
+          createCourierTrail(bossOptions.gameField, enemy.x, enemy.y);
+        }
       }
     }
 
@@ -1063,6 +1174,14 @@ export function updateEnemies(
 
     // 检查是否到达基地
     if (baseGrid && enemy.row === baseGrid.row && enemy.col === baseGrid.col) {
+      if (enemy.enemyType === ENEMY_TYPES.COURIER) {
+        enemy.alive = false;
+        enemy.el.remove();
+        if (bossOptions.onCourierArrival) {
+          bossOptions.onCourierArrival(enemy);
+        }
+        continue;
+      }
       enemy.alive = false;
       enemy.el.remove();
       const damageToBase = ENEMY_DAMAGE_TO_BASE[enemy.enemyType] || 1;
@@ -1078,6 +1197,14 @@ export function updateEnemies(
       (enemy.x - basePos.x) ** 2 + (enemy.y - basePos.y) ** 2
     );
     if (distToBase <= BASE_RADIUS) {
+      if (enemy.enemyType === ENEMY_TYPES.COURIER) {
+        enemy.alive = false;
+        enemy.el.remove();
+        if (bossOptions.onCourierArrival) {
+          bossOptions.onCourierArrival(enemy);
+        }
+        continue;
+      }
       enemy.alive = false;
       enemy.el.remove();
       const damageToBase = ENEMY_DAMAGE_TO_BASE[enemy.enemyType] || 1;
@@ -1286,6 +1413,13 @@ export function updateEnemies(
     enemy.el.style.left = `${enemy.x}px`;
     enemy.el.style.top = `${enemy.y}px`;
 
+    if (enemy.shieldBreakTimer && enemy.shieldBreakTimer > 0) {
+      enemy.shieldBreakTimer = Math.max(0, enemy.shieldBreakTimer - deltaTime);
+      if (enemy.shieldBreakTimer <= 0) {
+        enemy.el.classList.remove("enemy-shield-breaking");
+      }
+    }
+
     // 更新血量條可視比例
     const hpBar = /** @type {HTMLElement | null} */ (
       enemy.el.querySelector(".enemy-hp-fill")
@@ -1293,6 +1427,22 @@ export function updateEnemies(
     if (hpBar) {
       const ratio = enemy.maxHp > 0 ? Math.max(0, Math.min(1, enemy.hp / enemy.maxHp)) : 0;
       hpBar.style.transform = `scaleX(${ratio})`;
+    }
+    const shieldBar = /** @type {HTMLElement | null} */ (
+      enemy.el.querySelector(".enemy-shield-fill")
+    );
+    const shieldRatio =
+      enemy.maxShield && enemy.maxShield > 0
+        ? Math.max(0, Math.min(1, (enemy.currentShield || 0) / enemy.maxShield))
+        : 0;
+    if (shieldBar) {
+      shieldBar.style.transform = `scaleX(${shieldRatio})`;
+      shieldBar.style.opacity = shieldRatio > 0 ? "1" : "0";
+    }
+    if (enemy.currentShield && enemy.currentShield > 0) {
+      enemy.el.classList.add("enemy-with-shield");
+    } else {
+      enemy.el.classList.remove("enemy-with-shield");
     }
 
     if (enemy.isBoss && typeof bossOptions.onBossHpChanged === "function") {
@@ -1307,12 +1457,25 @@ export function updateEnemies(
         notifyBossDefeated(bossOptions, enemy);
       }
       
+      if (enemy.enemyType === ENEMY_TYPES.SYMBIOTE) {
+        pendingParasites.push(() =>
+          spawnParasiteAttachments(enemy, enemies, bossOptions.gameField)
+        );
+      }
+
       enemy.alive = false;
       enemy.el.remove();
+      enemy.parasiteState = null;
       // 通知擊殺統計
       if (onEnemyKilled) {
         onEnemyKilled(enemy);
       }
+    }
+  }
+
+  if (pendingParasites.length > 0) {
+    for (const effect of pendingParasites) {
+      effect();
     }
   }
 
@@ -1322,6 +1485,80 @@ export function updateEnemies(
       bossOptions.onExtraEnemySpawned(pendingSummons);
     }
   }
+}
+
+function spawnParasiteAttachments(symbiote, enemies, gameField) {
+  if (!symbiote || !symbiote.symbioteConfig) return;
+  const config = symbiote.symbioteConfig;
+  const origin = { x: symbiote.x, y: symbiote.y };
+  const candidates = enemies
+    .filter((enemy) => enemy.alive && enemy !== symbiote && !enemy.parasiteState)
+    .map((enemy) => ({
+      enemy,
+      dist: Math.hypot(enemy.x - origin.x, enemy.y - origin.y),
+    }))
+    .sort((a, b) => a.dist - b.dist);
+
+  const count = config.parasiteCount || 3;
+  for (let i = 0; i < Math.min(count, candidates.length); i++) {
+    applyParasiteToEnemy(candidates[i].enemy, config, origin, gameField);
+  }
+}
+
+function applyParasiteToEnemy(target, config, origin, gameField) {
+  if (!target) return;
+  const shieldRatio = config.shieldRatio ?? 0.2;
+  const extraShield = Math.round(target.maxHp * shieldRatio);
+  if (extraShield > 0) {
+    target.maxShield = (target.maxShield || 0) + extraShield;
+    target.currentShield = (target.currentShield || 0) + extraShield;
+  }
+  target.parasiteState = {
+    remaining: config.duration || 6000,
+    regenPerSecond: config.regen || 0,
+  };
+  target.el.classList.add("enemy-parasitized");
+  if (gameField) {
+    createParasiteTether(origin, target, gameField);
+  }
+}
+
+function createParasiteTether(origin, target, gameField) {
+  if (!gameField) return;
+  const dx = target.x - origin.x;
+  const dy = target.y - origin.y;
+  const length = Math.sqrt(dx * dx + dy * dy);
+  if (length <= 0) return;
+  const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+  const tether = document.createElement("div");
+  tether.className = "parasite-tether";
+  tether.style.left = `${origin.x}px`;
+  tether.style.top = `${origin.y}px`;
+  tether.style.width = `${length}px`;
+  tether.style.transformOrigin = "0 50%";
+  tether.style.transform = `translate(-50%, -50%) rotate(${angle}deg)`;
+  gameField.appendChild(tether);
+  requestAnimationFrame(() => tether.classList.add("parasite-tether--active"));
+  setTimeout(() => {
+    if (tether.parentElement) {
+      tether.parentElement.removeChild(tether);
+    }
+  }, 600);
+}
+
+function createCourierTrail(gameField, x, y) {
+  if (!gameField) return;
+  const trail = document.createElement("div");
+  trail.className = "courier-trail";
+  trail.style.left = `${x}px`;
+  trail.style.top = `${y}px`;
+  gameField.appendChild(trail);
+  requestAnimationFrame(() => trail.classList.add("courier-trail--fade"));
+  setTimeout(() => {
+    if (trail.parentElement) {
+      trail.parentElement.removeChild(trail);
+    }
+  }, 400);
 }
 
 

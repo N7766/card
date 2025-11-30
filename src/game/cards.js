@@ -76,6 +76,40 @@ export const CARD_LIBRARY = [
       label: "SNIP",
     },
   },
+  {
+    id: "tower-executioner",
+    name: "Executioner's Tower",
+    type: "tower",
+    cost: 11,
+    description: "对生命值最低的敌人发出处决斩击，对血量低于20%的敌人造成巨额伤害。",
+    stats: {
+      attack: 3,
+      range: 2,
+      speed: 1,
+      typeTag: "处决斩杀",
+    },
+    config: {
+      towerType: "executioner",
+      label: "EXEC",
+    },
+  },
+  {
+    id: "tower-percentile",
+    name: "Percentile Spire",
+    type: "tower",
+    cost: 9,
+    description: "锁定一个目标并持续发射光束，每秒按目标当前生命值造成百分比伤害。",
+    stats: {
+      attack: 2,
+      range: 3,
+      speed: 2,
+      typeTag: "持续光束",
+    },
+    config: {
+      towerType: "percentile",
+      label: "PCT",
+    },
+  },
   // 保留旧塔类型作为兼容（可选）
   {
     id: "tower-div",

@@ -31,6 +31,7 @@ import {
   MAX_ENERGY,
   ENERGY_REGEN_PER_SECOND,
   LEVELS,
+  ENEMY_TYPES,
 } from "./config.js";
 import { getInitialHand } from "./cards.js";
 import {
@@ -66,9 +67,20 @@ import {
   showBossStatusBar,
   updateBossHpBar,
   hideBossStatusBar,
+  initAdaptiveBattlefield,
+  clientPointToFieldCoords,
+  getFieldDimensions,
+  getBaseLogicalPosition,
+  showBaseAlert,
+  notifyBattlefieldSizeChanged,
 } from "./ui.js";
 import { createTower, applyStyleCardToTower } from "./tower.js";
-import { spawnEnemy, updateEnemies, recalculateAllEnemyPaths } from "./enemy.js";
+import {
+  spawnEnemy,
+  updateEnemies,
+  recalculateAllEnemyPaths,
+  applyDamageToEnemy,
+} from "./enemy.js";
 import {
   createBullet,
   updateBullet,
@@ -140,6 +152,8 @@ import {
  * } | null} map 地圖狀態
  * @property {(options:{x:number,y:number,width?:number,height?:number,source?:string,ensurePath?:boolean}) => {success: boolean, reason?: string}} [addPermanentObstacle]
  * @property {ItemManager} itemManager 道具管理器
+ * @property {{shieldRatio?:number}} nextWaveModifiers
+ * @property {{shieldRatio?:number}} activeWaveModifiers
  */
 
 /** @type {GameState | null} */
@@ -154,6 +168,9 @@ const MIN_WAVES_PER_LEVEL = 7;
 const DEFAULT_GROUP_INTERVAL_MS = 900;
 const MIN_GROUP_INTERVAL_MS = 250;
 const DEFAULT_WAVE_DELAY_MS = 3500;
+const COURIER_SHIELD_RATIO = 0.35;
+const COURIER_SHIELD_RATIO_MAX = 0.75;
+const JAMMER_SLOW_CAP = 2.8;
 
 /**
  * 深拷貝並校驗關卡波次配置，確保至少具備 MIN_WAVES_PER_LEVEL 波。
@@ -349,6 +366,8 @@ export function initGame() {
   // 初始化调试模式（保留功能，但移除UI按钮）
   const isDebug = initDebugMode();
 
+  initAdaptiveBattlefield();
+
   bindControlButtons({
     onStart: () => {
       // 從開始界面獲取選中的關卡索引，默認為 0
@@ -458,6 +477,8 @@ function createInitialState(levelIndex) {
     activeBossId: null,
     pauseStartTime: null, // 暫停開始時間，null 表示未暫停
     itemManager: new ItemManager(uiElements.gameField, null), // 稍后设置gameState引用
+    nextWaveModifiers: {},
+    activeWaveModifiers: {},
   };
   
   // 设置itemManager的gameState引用
@@ -734,6 +755,7 @@ function applyGameFieldDimensions(mapState) {
   uiElements.gameField.style.setProperty("--tile-size", `${mapState.tileSize}px`);
   uiElements.gameField.style.width = `${widthPx}px`;
   uiElements.gameField.style.height = `${heightPx}px`;
+  notifyBattlefieldSizeChanged();
 }
 
 /**
@@ -758,6 +780,23 @@ function renderObstacles(mapState) {
       }
       if (obs.source) {
         obstacleEl.dataset.source = obs.source;
+      }
+
+      const area = (obs.w || 1) * (obs.h || 1);
+      if (area >= 54) {
+        obstacleEl.classList.add("obstacle--size-large");
+      } else if (area >= 16) {
+        obstacleEl.classList.add("obstacle--size-medium");
+      } else {
+        obstacleEl.classList.add("obstacle--size-small");
+      }
+
+      const isTurnAnchor = (obs.w <= 3 && obs.h >= 4) || (obs.h <= 3 && obs.w >= 4);
+      if (isTurnAnchor) {
+        obstacleEl.classList.add("obstacle--turn");
+      }
+      if (obs.w <= 3 && obs.h <= 3) {
+        obstacleEl.classList.add("obstacle--platform");
       }
 
       obstacleEl.style.left = `${obs.x * mapState.tileSize}px`;
@@ -1336,6 +1375,7 @@ function updateGameState(delta, now) {
           lastBossTowerToast = now;
         }
       },
+      onCourierArrival: handleCourierArrival,
     }
   );
 
@@ -1356,7 +1396,7 @@ function updateGameState(delta, now) {
   applyScriptDisruption(state.towers, state.enemies, logicNow);
 
   // 塔攻擊敵人（生成子弹）
-  updateTowers(state.towers, state.enemies, logicNow, state.bullets, uiElements.gameField);
+  updateTowers(state.towers, state.enemies, logicNow, state.bullets, uiElements.gameField, dtSeconds);
 
   // 更新子弹位置（使用缩放后的时间差，受游戏速度倍率影响）
   updateBullets(state.bullets, dtSeconds, state.enemies, uiElements.gameField);
@@ -1405,6 +1445,8 @@ function startWave(waveIndex) {
   state.spawnCursor = 0;
   state.spawnedInCurrentGroup = 0;
   state.timeSinceLastSpawn = 0;
+  state.activeWaveModifiers = { ...(state.nextWaveModifiers || {}) };
+  state.nextWaveModifiers = {};
 
   updateWave(waveIndex, totalWaves);
   const level = LEVELS[state.currentLevelIndex];
@@ -1419,6 +1461,12 @@ function startWave(waveIndex) {
 
   const waveId = waves[waveIndex]?.id ?? waveIndex + 1;
   showWaveToast(`第 ${waveId} 波開始`, "start");
+
+  if (state.activeWaveModifiers?.shieldRatio) {
+    setTimeout(() => {
+      showWaveToast("本波敵人護盾增強！", "info");
+    }, 600);
+  }
 }
 
 /**
@@ -1460,6 +1508,7 @@ function updateWaveSpawning(delta) {
         group.speedMultiplier ?? 1
       );
       if (enemy) {
+        applyActiveModifiersToEnemy(enemy);
         state.enemies.push(enemy);
         enemy.needsPathRecalculation = true;
         if (enemy.isBoss) {
@@ -1518,17 +1567,36 @@ function updateWaveSpawning(delta) {
   startWave(state.currentWaveIndex + 1);
 }
 
+function handleCourierArrival(enemy) {
+  if (!state) return;
+  const bonus =
+    (enemy && Number.isFinite(enemy.courierShieldBonus)
+      ? enemy.courierShieldBonus
+      : COURIER_SHIELD_RATIO) || COURIER_SHIELD_RATIO;
+  const current = state.nextWaveModifiers?.shieldRatio || 0;
+  const next = Math.min(COURIER_SHIELD_RATIO_MAX, current + bonus);
+  state.nextWaveModifiers = { ...(state.nextWaveModifiers || {}), shieldRatio: next };
+  showBaseAlert("信使抵達，下一波敵人獲得護盾強化", 2600);
+  showWaveToast("下一波敵人獲得護盾強化", "info");
+}
+
+function applyActiveModifiersToEnemy(enemy) {
+  if (!state?.activeWaveModifiers || !enemy) return;
+  const ratio = state.activeWaveModifiers.shieldRatio || 0;
+  if (ratio <= 0 || enemy.maxHp <= 0) return;
+  const bonusShield = Math.round(enemy.maxHp * ratio);
+  if (bonusShield <= 0) return;
+  enemy.maxShield = (enemy.maxShield || 0) + bonusShield;
+  enemy.currentShield = (enemy.currentShield || 0) + bonusShield;
+  enemy.el.classList.add("enemy-wave-shielded");
+}
+
 /**
  * 獲取基地中心在戰場中的座標。
  * @returns {{ x: number, y: number }}
  */
 function getBasePosition() {
-  const fieldRect = uiElements.gameField.getBoundingClientRect();
-  const baseRect = uiElements.baseEl.getBoundingClientRect();
-  return {
-    x: baseRect.left - fieldRect.left + baseRect.width / 2,
-    y: baseRect.top - fieldRect.top + baseRect.height / 2,
-  };
+  return getBaseLogicalPosition();
 }
 
 /**
@@ -1542,15 +1610,13 @@ function applyScriptDisruption(towers, enemies, now) {
 
   for (const enemy of enemies) {
     if (!enemy.alive || enemy.enemyType !== "script") continue;
-    const er = enemy.el.getBoundingClientRect();
-    const ex = er.left + er.width / 2;
-    const ey = er.top + er.height / 2;
+    const ex = enemy.x;
+    const ey = enemy.y;
 
     for (const tower of towers) {
       if (!tower.alive) continue;
-      const tr = tower.el.getBoundingClientRect();
-      const tx = tr.left + tr.width / 2;
-      const ty = tr.top + tr.height / 2;
+      const tx = tower.x;
+      const ty = tower.y;
       const dx = tx - ex;
       const dy = ty - ey;
       const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1566,6 +1632,24 @@ function applyScriptDisruption(towers, enemies, now) {
   }
 }
 
+function getTowerSlowMultiplier(tower, enemies) {
+  if (!enemies || enemies.length === 0) return 1;
+  let multiplier = 1;
+  for (const enemy of enemies) {
+    if (!enemy.alive || enemy.enemyType !== ENEMY_TYPES.JAMMER) continue;
+    const radius = enemy.jammerAuraRadius || 0;
+    if (radius <= 0) continue;
+    const dx = enemy.x - tower.x;
+    const dy = enemy.y - tower.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist <= radius) {
+      const slow = enemy.jammerSlowMultiplier || 1.3;
+      multiplier *= slow;
+    }
+  }
+  return Math.min(multiplier, JAMMER_SLOW_CAP);
+}
+
 /**
  * 更新塔攻擊敵人（生成子弹）。
  * @param {Tower[]} towers
@@ -1574,9 +1658,15 @@ function applyScriptDisruption(towers, enemies, now) {
  * @param {Array} bullets 子弹数组
  * @param {HTMLElement} gameField 战场DOM
  */
-function updateTowers(towers, enemies, now, bullets, gameField) {
+function updateTowers(towers, enemies, now, bullets, gameField, dtSeconds = 0) {
   for (const tower of towers) {
-    if (!tower.alive) continue;
+    if (!tower.alive) {
+      if (tower.beamState?.beamEl) {
+        tower.beamState.beamEl.remove();
+        tower.beamState.beamEl = null;
+      }
+      continue;
+    }
 
     // 若被腳本怪禁用，則暫時不能攻擊
     if (tower.disabledUntil && now < tower.disabledUntil) {
@@ -1586,7 +1676,21 @@ function updateTowers(towers, enemies, now, bullets, gameField) {
       tower.el.style.opacity = "";
     }
 
-    if (now - tower.lastAttackTime < tower.attackInterval) continue;
+    if (tower.percentDamagePerSecond) {
+      tower.el.classList.remove("tower-jammed");
+      updatePercentileTower(tower, enemies, dtSeconds, now, gameField);
+      continue;
+    }
+
+    const slowMultiplier = getTowerSlowMultiplier(tower, enemies);
+    const effectiveInterval = tower.attackInterval * slowMultiplier;
+    if (slowMultiplier > 1.01) {
+      tower.el.classList.add("tower-jammed");
+    } else {
+      tower.el.classList.remove("tower-jammed");
+    }
+
+    if (now - tower.lastAttackTime < effectiveInterval) continue;
 
     const tx = tower.x;
     const ty = tower.y;
@@ -1627,6 +1731,15 @@ function updateTowers(towers, enemies, now, bullets, gameField) {
           target = enemy;
         }
       }
+    } else if (tower.targetStrategy === "lowest") {
+      let lowestRatio = Infinity;
+      for (const enemy of inRangeEnemies) {
+        const ratio = enemy.maxHp > 0 ? enemy.hp / enemy.maxHp : 1;
+        if (ratio < lowestRatio) {
+          lowestRatio = ratio;
+          target = enemy;
+        }
+      }
     } else {
       // 默认选择首个进入射程的敌人（"first"策略）
       // 这里简化为选择最近的敌人
@@ -1652,7 +1765,17 @@ function updateTowers(towers, enemies, now, bullets, gameField) {
 
     // 创建子弹
     const bulletSpeed = tower.bulletSpeed || 400;
-    const bulletStyle = tower.bulletStyle || "fast";
+    let bulletStyle = tower.bulletStyle || "fast";
+    let damage = tower.damage;
+    if (tower.towerType === "executioner") {
+      const threshold = tower.executionerThreshold ?? 0.2;
+      const multiplier = tower.executionerMultiplier ?? 5;
+      const ratio = target.maxHp > 0 ? target.hp / target.maxHp : 1;
+      if (ratio <= threshold) {
+        damage *= multiplier;
+        bulletStyle = "executioner";
+      }
+    }
     const bullet = createBullet(
       gameField,
       tx,
@@ -1660,7 +1783,7 @@ function updateTowers(towers, enemies, now, bullets, gameField) {
       targetX,
       targetY,
       bulletSpeed,
-      tower.damage,
+      damage,
       bulletStyle,
       target,
       tower.aoeRadius || 0,
@@ -1673,6 +1796,85 @@ function updateTowers(towers, enemies, now, bullets, gameField) {
 
     tower.lastAttackTime = now;
   }
+}
+
+function selectPercentileTarget(tower, enemies, currentTarget) {
+  if (currentTarget && currentTarget.alive) {
+    const dx = currentTarget.x - tower.x;
+    const dy = currentTarget.y - tower.y;
+    if (Math.sqrt(dx * dx + dy * dy) <= tower.range) {
+      return currentTarget;
+    }
+  }
+  let selected = null;
+  let highestHp = -Infinity;
+  for (const enemy of enemies) {
+    if (!enemy.alive) continue;
+    const dx = enemy.x - tower.x;
+    const dy = enemy.y - tower.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > tower.range) continue;
+    if (enemy.hp > highestHp) {
+      highestHp = enemy.hp;
+      selected = enemy;
+    }
+  }
+  return selected;
+}
+
+function updatePercentileTower(tower, enemies, dtSeconds, now, gameField) {
+  if (!tower.percentDamagePerSecond || dtSeconds <= 0) {
+    if (tower.beamState?.beamEl) {
+      tower.beamState.beamEl.remove();
+      tower.beamState.beamEl = null;
+    }
+    return;
+  }
+  tower.beamState = tower.beamState || { target: null, beamEl: null };
+  const state = tower.beamState;
+  const target = selectPercentileTarget(tower, enemies, state.target);
+  if (!target) {
+    if (state.beamEl) {
+      state.beamEl.remove();
+      state.beamEl = null;
+    }
+    state.target = null;
+    return;
+  }
+  const slowMultiplier = getTowerSlowMultiplier(tower, enemies);
+  if (slowMultiplier > 1.01) {
+    tower.el.classList.add("tower-jammed");
+  } else {
+    tower.el.classList.remove("tower-jammed");
+  }
+  state.target = target;
+  const percent = tower.percentDamagePerSecond;
+  const minPerSecond = tower.percentMinDamage || 0;
+  const damagePerSecond = Math.max(minPerSecond, target.hp * percent);
+  const damage = (damagePerSecond / slowMultiplier) * dtSeconds;
+  applyDamageToEnemy(target, damage);
+  renderPercentileBeam(tower, target, gameField, state);
+  tower.lastAttackTime = now;
+}
+
+function renderPercentileBeam(tower, target, gameField, beamState) {
+  if (!gameField) return;
+  if (!beamState.beamEl) {
+    const beam = document.createElement("div");
+    beam.className = "percentile-beam";
+    gameField.appendChild(beam);
+    beamState.beamEl = beam;
+  }
+  const beam = beamState.beamEl;
+  const dx = target.x - tower.x;
+  const dy = target.y - tower.y;
+  const length = Math.sqrt(dx * dx + dy * dy);
+  const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+  beam.style.left = `${tower.x}px`;
+  beam.style.top = `${tower.y}px`;
+  beam.style.width = `${length}px`;
+  beam.style.transformOrigin = "0 50%";
+  beam.style.transform = `translate(-50%, -50%) rotate(${angle}deg)`;
 }
 
 /**
@@ -1706,7 +1908,7 @@ function updateBullets(bullets, dtSeconds, enemies, gameField) {
           const dist = Math.sqrt(dx * dx + dy * dy);
           if (dist <= bullet.aoeRadius) {
             const actualDamage = calculateDamage(enemy, bullet.aoeDamage || bullet.damage);
-            enemy.hp -= actualDamage;
+            applyDamageToEnemy(enemy, actualDamage);
             hitEnemies.push(enemy);
           }
         }
@@ -1715,7 +1917,7 @@ function updateBullets(bullets, dtSeconds, enemies, gameField) {
         // 单体伤害子弹
         if (bullet.target && bullet.target.alive) {
           const actualDamage = calculateDamage(bullet.target, bullet.damage);
-          bullet.target.hp -= actualDamage;
+          applyDamageToEnemy(bullet.target, actualDamage);
         }
         playBulletHitEffect(gameField, bullet, bullet.x, bullet.y);
       }
@@ -1735,7 +1937,7 @@ function updateBullets(bullets, dtSeconds, enemies, gameField) {
               const dist = Math.sqrt(dx * dx + dy * dy);
               if (dist <= bullet.aoeRadius) {
                 const actualDamage = calculateDamage(enemy, bullet.aoeDamage || bullet.damage);
-                enemy.hp -= actualDamage;
+                applyDamageToEnemy(enemy, actualDamage);
                 hitEnemies.push(enemy);
               }
             }
@@ -1743,7 +1945,7 @@ function updateBullets(bullets, dtSeconds, enemies, gameField) {
           } else {
             // 单体伤害
             const actualDamage = calculateDamage(bullet.target, bullet.damage);
-            bullet.target.hp -= actualDamage;
+            applyDamageToEnemy(bullet.target, actualDamage);
             playBulletHitEffect(gameField, bullet, bullet.x, bullet.y);
           }
           bullet.alive = false;
@@ -1906,16 +2108,15 @@ function handleCardClick(card) {
 function handleFieldMouseMove(ev) {
   if (!selectedAction || selectedAction.mode !== "place-tower") return;
 
-  const rect = uiElements.gameField.getBoundingClientRect();
-  const x = ev.clientX - rect.left;
-  const y = ev.clientY - rect.top;
+  const { x, y } = clientPointToFieldCoords(ev.clientX, ev.clientY);
+  const fieldSize = getFieldDimensions();
 
   // 对齐到网格中心
   const grid = pixelToGrid(x, y);
   const pixelPos = gridToPixel(grid.row, grid.col);
   
-  lastMousePos.x = Math.max(0, Math.min(rect.width, pixelPos.x));
-  lastMousePos.y = Math.max(0, Math.min(rect.height, pixelPos.y));
+  lastMousePos.x = Math.max(0, Math.min(fieldSize.width, pixelPos.x));
+  lastMousePos.y = Math.max(0, Math.min(fieldSize.height, pixelPos.y));
 
   if (!towerPreviewEl) {
     ensureTowerPreview();
@@ -1961,9 +2162,7 @@ function handleFieldClick(ev) {
   
   // 检查是否在使用道具
   if (state.itemManager && state.itemManager.usingItem) {
-    const rect = uiElements.gameField.getBoundingClientRect();
-    const x = ev.clientX - rect.left;
-    const y = ev.clientY - rect.top;
+    const { x, y } = clientPointToFieldCoords(ev.clientX, ev.clientY);
     state.itemManager.useItemAtTarget(x, y, state.enemies);
     return;
   }
@@ -1983,9 +2182,9 @@ function handleFieldClick(ev) {
 
   if (selectedAction.mode === "place-tower") {
     // 塔卡：在戰場放置塔
-    const rect = uiElements.gameField.getBoundingClientRect();
-    let x = lastMousePos.x || rect.width / 2;
-    let y = lastMousePos.y || rect.height / 2;
+    const fieldSize = getFieldDimensions();
+    let x = lastMousePos.x || fieldSize.width / 2;
+    let y = lastMousePos.y || fieldSize.height / 2;
     
     // 对齐到网格中心
     const grid = pixelToGrid(x, y);
@@ -2339,7 +2538,7 @@ function isTowerTooCloseToPath(towerX, towerY, level, towerRadius) {
     : level.previewPaths;
   if (!previewPaths || previewPaths.length === 0) return false;
 
-  const fieldRect = uiElements.gameField.getBoundingClientRect();
+  const fieldSize = getFieldDimensions();
   const minDistance = towerRadius + 8;
 
   for (const path of previewPaths) {
@@ -2347,10 +2546,10 @@ function isTowerTooCloseToPath(towerX, towerY, level, towerRadius) {
     for (let i = 0; i < path.length - 1; i++) {
       const p1 = path[i];
       const p2 = path[i + 1];
-      const x1 = p1.x * fieldRect.width;
-      const y1 = p1.y * fieldRect.height;
-      const x2 = p2.x * fieldRect.width;
-      const y2 = p2.y * fieldRect.height;
+      const x1 = p1.x * fieldSize.width;
+      const y1 = p1.y * fieldSize.height;
+      const x2 = p2.x * fieldSize.width;
+      const y2 = p2.y * fieldSize.height;
       const dist = pointToLineSegmentDistance(towerX, towerY, x1, y1, x2, y2);
       if (dist < minDistance) {
         return true;
@@ -2368,7 +2567,7 @@ function getMapSize() {
   if (state?.map) {
     return { width: state.map.width, height: state.map.height };
   }
-  const fieldRect = uiElements.gameField.getBoundingClientRect();
+  const fieldRect = getFieldDimensions();
   return {
     width: Math.max(1, Math.floor(fieldRect.width / GRID_CONFIG.TILE_SIZE)),
     height: Math.max(1, Math.floor(fieldRect.height / GRID_CONFIG.TILE_SIZE)),
@@ -2474,7 +2673,7 @@ function getSpawnPointsGrid(level) {
   }
   if (!level.spawnPoints || level.spawnPoints.length === 0) return [];
 
-  const fieldRect = uiElements.gameField.getBoundingClientRect();
+  const fieldRect = getFieldDimensions();
   return level.spawnPoints.map((spawn) => {
     const pixelX = spawn.x * fieldRect.width;
     const pixelY = spawn.y * fieldRect.height;
@@ -2493,7 +2692,7 @@ function getBaseGrid(level) {
   }
   if (!level.basePosition) return null;
 
-  const fieldRect = uiElements.gameField.getBoundingClientRect();
+  const fieldRect = getFieldDimensions();
   const baseX = level.basePosition.x * fieldRect.width;
   const baseY = level.basePosition.y * fieldRect.height;
   return pixelToGrid(baseX, baseY);

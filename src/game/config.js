@@ -90,6 +90,9 @@ export const ENEMY_TYPES = Object.freeze({
   AD: "ad",
   BANNER: "banner",
   SCRIPT: "script",
+  COURIER: "courier",
+  SYMBIOTE: "symbiote",
+  JAMMER: "jammer",
   BOSS: "boss",
 });
 
@@ -240,6 +243,62 @@ export const ENEMY_CONFIGS = {
       hitRadius: 18,
     },
   },
+  [ENEMY_TYPES.COURIER]: {
+    maxHp: 18,
+    baseSpeed: 70,
+    moveSpeed: 70,
+    armor: 0,
+    damageToBase: 0,
+    rewardEnergy: 1,
+    specialBehavior: {
+      courier: true,
+      shieldBonusRatio: 0.35,
+    },
+    visual: {
+      width: 32,
+      height: 22,
+      hitRadius: 14,
+    },
+  },
+  [ENEMY_TYPES.SYMBIOTE]: {
+    maxHp: 95,
+    baseSpeed: 32,
+    moveSpeed: 32,
+    armor: 0.05,
+    damageToBase: 2,
+    rewardEnergy: 5,
+    specialBehavior: {
+      parasiteCount: 3,
+      parasiteShieldRatio: 0.25,
+      parasiteRegenPerSecond: 5,
+      parasiteDuration: 7000,
+    },
+    visual: {
+      width: 50,
+      height: 30,
+      hitRadius: 22,
+    },
+  },
+  [ENEMY_TYPES.JAMMER]: {
+    maxHp: 150,
+    baseSpeed: 24,
+    moveSpeed: 24,
+    armor: 0.05,
+    damageToBase: 2,
+    rewardEnergy: 7,
+    maxShield: 35,
+    specialBehavior: {
+      auraRadius: 150,
+      slowMultiplier: 1.3,
+      maxStacks: 2,
+    },
+    visual: {
+      width: 54,
+      height: 32,
+      highlightRadius: 160,
+      hitRadius: 26,
+    },
+  },
   [ENEMY_TYPES.AD]: {
     maxHp: 26,
     baseSpeed: 48,
@@ -384,6 +443,31 @@ export const TOWERS_CONFIG = {
     bulletSpeed: 450, // 中等速度
     bulletStyle: "heavy", // 粗能量球/激光束
     targetStrategy: "strongest", // 优先攻击血量最高的敌人
+  },
+  executioner: {
+    type: "executioner",
+    name: "Executioner's Tower",
+    attackDamage: 28,
+    attackInterval: 2500,
+    attackRange: 220,
+    bulletSpeed: 420,
+    bulletStyle: "heavy",
+    targetStrategy: "lowest",
+    executionerThreshold: 0.2,
+    executionerMultiplier: 5,
+  },
+  percentile: {
+    type: "percentile",
+    name: "Percentile Spire",
+    attackDamage: 0,
+    attackInterval: 0,
+    attackRange: 260,
+    minRange: 0,
+    bulletSpeed: 0,
+    bulletStyle: "beam",
+    targetStrategy: "first",
+    percentDamagePerSecond: 0.05,
+    minPercentDamage: 5,
   },
 };
 
@@ -695,6 +779,7 @@ export const LEVELS = [
           { type: "script", count: 3 },
           { type: "devourer", count: 1 },
           { type: "healer", count: 2 },
+          { type: "courier", count: 3, interval: 1400 },
         ],
       },
       {
@@ -737,7 +822,7 @@ export const LEVELS = [
       },
     ],
     difficulty: 2, // 难度星级
-    enemyTypes: ["普通", "冲刺", "BANNER", "SCRIPT", "吞噬", "智能", "治疗", "Boss"], // 敌人类型
+    enemyTypes: ["普通", "冲刺", "BANNER", "SCRIPT", "吞噬", "智能", "治疗", "信使", "Boss"], // 敌人类型
     recommended: "需要全方位防御，合理使用布局卡提升整体战力", // 推荐玩法提示
     setupTimeSeconds: 12, // 布置时间（秒）
     previewPaths: [
@@ -767,29 +852,58 @@ export const LEVELS = [
   {
     id: 3,
     name: "Level 3 · 終極挑戰",
-    description: "终极挑战！敌人从多个方向同时进攻，合理使用布局卡和样式卡。",
+    description: "终极挑战！多段回旋走廊与分层防线同时压迫，合理使用布局卡和样式卡。",
     backgroundClass: "map-theme-dark",
     mapPreset: "maze-core",
     mapSize: { width: 34, height: 26 },
     entryPosition: { x: 0.15, y: 0.05 },
     basePosition: { x: 0.5, y: 0.7 }, // BASE 在中下
-    baseClearRadiusTiles: 3,
+    baseClearRadiusTiles: 2,
     spawnPoints: [
-      { x: 0.0, y: 0.0 }, // 左上角
-      { x: 1.0, y: 0.0 }, // 右上角
-      { x: 0.0, y: 0.5 }, // 左中
-      { x: 1.0, y: 0.5 }, // 右中
+      { x: 0.0, y: 0.02 }, // 左上角
+      { x: 1.0, y: 0.02 }, // 右上角
+      { x: 0.0, y: 0.38 }, // 左上中
+      { x: 1.0, y: 0.38 }, // 右上中
     ],
     gridObstacles: [
-      { x: 3, y: 3, w: 6, h: 5 },
-      { x: 25, y: 3, w: 6, h: 5 },
-      { x: 10, y: 2, w: 4, h: 12 },
-      { x: 20, y: 2, w: 4, h: 12 },
-      { x: 6, y: 15, w: 7, h: 3 },
-      { x: 21, y: 15, w: 7, h: 3 },
-      { x: 12, y: 21, w: 10, h: 3 },
-      { x: 2, y: 20, w: 4, h: 5 },
-      { x: 28, y: 20, w: 4, h: 5 },
+      // 蛇形主干，迫使敵人多次橫移
+      { x: 0, y: 3, w: 30, h: 2 },
+      { x: 6, y: 7, w: 28, h: 2 },
+      { x: 0, y: 11, w: 30, h: 2 },
+      { x: 6, y: 15, w: 28, h: 2 },
+      { x: 0, y: 17, w: 8, h: 2 },
+      // 前線分層與半開口 U 形
+      { x: 8, y: 17, w: 2, h: 3 },
+      { x: 10, y: 17, w: 3, h: 6 },
+      { x: 21, y: 17, w: 3, h: 6 },
+      { x: 24, y: 17, w: 2, h: 3 },
+      { x: 16, y: 18, w: 2, h: 2 },
+      { x: 13, y: 22, w: 3, h: 2 },
+      { x: 19, y: 22, w: 3, h: 2 },
+      { x: 27, y: 18, w: 2, h: 4 },
+      // 上半區的轉角與小平台
+      { x: 2, y: 0, w: 2, h: 3 },
+      { x: 8, y: 0, w: 3, h: 3 },
+      { x: 24, y: 0, w: 3, h: 3 },
+      { x: 5, y: 5, w: 2, h: 2 },
+      { x: 10, y: 5, w: 3, h: 2 },
+      { x: 18, y: 5, w: 3, h: 2 },
+      { x: 25, y: 5, w: 2, h: 2 },
+      { x: 4, y: 9, w: 3, h: 2 },
+      { x: 12, y: 9, w: 3, h: 2 },
+      { x: 20, y: 9, w: 3, h: 2 },
+      { x: 28, y: 9, w: 2, h: 2 },
+      // 中段交會的轉折與塔位
+      { x: 4, y: 13, w: 3, h: 2 },
+      { x: 11, y: 13, w: 3, h: 2 },
+      { x: 21, y: 13, w: 3, h: 2 },
+      { x: 28, y: 13, w: 2, h: 2 },
+      // 基地前緣的多層防線與塔臺
+      { x: 12, y: 17, w: 2, h: 2 },
+      { x: 18, y: 17, w: 2, h: 2 },
+      { x: 3, y: 20, w: 2, h: 3 },
+      { x: 28, y: 20, w: 3, h: 3 },
+      { x: 15, y: 23, w: 3, h: 2 },
     ],
     obstacles: [
       // 複雜的迷宮式障礙，形成多條路徑
@@ -806,12 +920,12 @@ export const LEVELS = [
     maxEnergy: 30,
     energyRegenPerSecond: 0.5, // 每2秒+1能量
     randomObstacles: {
-      count: 9,
-      avoidRadiusAroundBase: 0.16,
+      count: 6,
+      avoidRadiusAroundBase: 0.18,
       avoidRadiusAroundEntry: 0.15,
-      avoidPathDistance: 0.06,
-      minDistanceBetween: 0.06,
-      maxAttemptsPerObstacle: 24,
+      avoidPathDistance: 0.08,
+      minDistanceBetween: 0.07,
+      maxAttemptsPerObstacle: 28,
     },
     waves: [
       {
@@ -860,6 +974,7 @@ export const LEVELS = [
           { type: "banner", count: 3, interval: 2500 },
           { type: "smart", count: 3, interval: 1200 },
           { type: "devourer", count: 2, interval: 2200 },
+          { type: "symbiote", count: 2, interval: 2600 },
         ],
       },
       {
@@ -869,6 +984,7 @@ export const LEVELS = [
           { type: "sprinter", count: 8, interval: 900 },
           { type: "script", count: 4, interval: 1500 },
           { type: "healer", count: 2, interval: 2000 },
+          { type: "jammer", count: 2, interval: 3600 },
         ],
       },
       {
@@ -903,32 +1019,50 @@ export const LEVELS = [
       },
     ],
     difficulty: 3, // 难度星级
-    enemyTypes: ["普通", "冲刺", "BANNER", "SCRIPT", "吞噬", "智能", "治疗", "Boss"], // 敌人类型
-    recommended: "终极挑战！合理使用布局卡和样式卡，多放范围伤害塔", // 推荐玩法提示
+    enemyTypes: ["普通", "冲刺", "BANNER", "SCRIPT", "吞噬", "智能", "治疗", "信使", "共生体", "干扰者", "Boss"], // 敌人类型
+    recommended: "終極回旋長路，多層防線上堆疊範圍塔與單體塔交替施壓", // 推荐玩法提示
     setupTimeSeconds: 15, // 布置时间（秒）
     previewPaths: [
-      // 复杂路径预览
+      // 蛇形回旋路線示意（左上）
       [
         { x: 0.0, y: 0.0 },
-        { x: 0.2, y: 0.2 },
-        { x: 0.4, y: 0.5 },
-        { x: 0.5, y: 0.7 },
+        { x: 0.88, y: 0.05 },
+        { x: 0.85, y: 0.22 },
+        { x: 0.18, y: 0.33 },
+        { x: 0.82, y: 0.45 },
+        { x: 0.25, y: 0.58 },
+        { x: 0.78, y: 0.64 },
+        { x: 0.35, y: 0.7 },
+        { x: 0.5, y: 0.72 },
       ],
+      // 蛇形回旋路線示意（右上）
       [
         { x: 1.0, y: 0.0 },
-        { x: 0.8, y: 0.2 },
-        { x: 0.6, y: 0.5 },
-        { x: 0.5, y: 0.7 },
+        { x: 0.12, y: 0.06 },
+        { x: 0.15, y: 0.24 },
+        { x: 0.82, y: 0.34 },
+        { x: 0.2, y: 0.48 },
+        { x: 0.75, y: 0.58 },
+        { x: 0.32, y: 0.68 },
+        { x: 0.5, y: 0.72 },
       ],
+      // 左側上中入口匯入
       [
-        { x: 0.0, y: 0.5 },
-        { x: 0.3, y: 0.5 },
-        { x: 0.5, y: 0.7 },
+        { x: 0.0, y: 0.38 },
+        { x: 0.7, y: 0.42 },
+        { x: 0.2, y: 0.52 },
+        { x: 0.75, y: 0.6 },
+        { x: 0.4, y: 0.68 },
+        { x: 0.5, y: 0.72 },
       ],
+      // 右側上中入口匯入
       [
-        { x: 1.0, y: 0.5 },
-        { x: 0.7, y: 0.55 },
-        { x: 0.5, y: 0.7 },
+        { x: 1.0, y: 0.38 },
+        { x: 0.3, y: 0.42 },
+        { x: 0.85, y: 0.52 },
+        { x: 0.35, y: 0.6 },
+        { x: 0.63, y: 0.68 },
+        { x: 0.5, y: 0.72 },
       ],
     ],
   },
@@ -1293,7 +1427,7 @@ export const LEVELS = [
  */
 export const HUD_LAYOUT = {
   /** 顶部状态栏高度（像素） */
-  TOP_BAR_HEIGHT: 56,
+  TOP_BAR_HEIGHT: 52,
   /** 底部控制栏高度（像素） */
   BOTTOM_PANEL_HEIGHT: 80,
   /** 右侧道具栏宽度（像素） */

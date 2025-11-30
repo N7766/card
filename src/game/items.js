@@ -3,6 +3,8 @@
  * 负责道具生成、拾取、使用逻辑
  */
 
+import { applyDamageToEnemy } from "./enemy.js";
+
 /**
  * 道具配置常量
  */
@@ -131,7 +133,7 @@ function triggerBomb(gameField, x, y, radius, damage, enemies) {
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist <= radius) {
       const actualDamage = Math.max(1, Math.floor(damage * (1 - (enemy.armor || 0))));
-      enemy.hp -= actualDamage;
+      applyDamageToEnemy(enemy, actualDamage);
       hitEnemies.push(enemy);
     }
   }
@@ -240,7 +242,8 @@ export class ItemManager {
    * 在地图上生成道具
    */
   spawnItem() {
-    const fieldRect = this.gameField.getBoundingClientRect();
+    const fieldWidth = this.gameField.offsetWidth || this.gameField.clientWidth || 0;
+    const fieldHeight = this.gameField.offsetHeight || this.gameField.clientHeight || 0;
     
     // 随机选择一个道具类型
     const itemTypeIds = Object.keys(ITEM_TYPES);
@@ -249,8 +252,10 @@ export class ItemManager {
     
     // 随机生成位置（避开边缘和中心区域）
     const margin = 60;
-    const x = margin + Math.random() * (fieldRect.width - margin * 2);
-    const y = margin + Math.random() * (fieldRect.height - margin * 2);
+    const usableWidth = Math.max(fieldWidth - margin * 2, margin);
+    const usableHeight = Math.max(fieldHeight - margin * 2, margin);
+    const x = margin + Math.random() * usableWidth;
+    const y = margin + Math.random() * usableHeight;
     
     // 创建道具元素
     const itemEl = document.createElement("div");

@@ -16,7 +16,7 @@ import { TOWER_STATS, TOWERS_CONFIG } from "./config.js";
  * @property {number} damage
  * @property {number} attackInterval
  * @property {number} lastAttackTime
- * @property {"div"|"button"|"img"|"tower1"|"tower2"|"tower3"} towerType
+ * @property {"div"|"button"|"img"|"tower1"|"tower2"|"tower3"|"executioner"|"percentile"} towerType
  * @property {boolean} alive
  * @property {boolean} aoe 是否為範圍攻擊塔
  * @property {number | undefined} [disabledUntil] 若被腳本怪干擾，該時間前無法攻擊
@@ -26,6 +26,11 @@ import { TOWER_STATS, TOWERS_CONFIG } from "./config.js";
  * @property {"first"|"strongest"} [targetStrategy] 目标选择策略
  * @property {number} [aoeRadius] 范围伤害半径
  * @property {number} [aoeDamage] 范围伤害值
+ * @property {number} [executionerThreshold]
+ * @property {number} [executionerMultiplier]
+ * @property {number} [percentDamagePerSecond]
+ * @property {number} [percentMinDamage]
+ * @property {{target: any, beamEl: HTMLElement | null} | null} [beamState]
  */
 
 let towerIdCounter = 1;
@@ -33,7 +38,7 @@ let towerIdCounter = 1;
 /**
  * 創建塔元素並插入戰場。
  * @param {HTMLElement} gameField 戰場 DOM
- * @param {"div"|"button"|"img"|"tower1"|"tower2"|"tower3"} towerType
+ * @param {"div"|"button"|"img"|"tower1"|"tower2"|"tower3"|"executioner"|"percentile"} towerType
  * @param {number} x 在戰場中的 x 座標（像素）
  * @param {number} y 在戰場中的 y 座標（像素）
  * @param {string} label 顯示在塔上的短文字
@@ -63,6 +68,10 @@ export function createTower(gameField, towerType, x, y, label, now) {
     el.classList.add("tower-tower2");
   } else if (towerType === "tower3") {
     el.classList.add("tower-tower3");
+  } else if (towerType === "executioner") {
+    el.classList.add("tower-executioner");
+  } else if (towerType === "percentile") {
+    el.classList.add("tower-percentile");
   }
 
   el.dataset.towerId = id;
@@ -97,6 +106,17 @@ export function createTower(gameField, towerType, x, y, label, now) {
     tower.targetStrategy = newConfig.targetStrategy;
     tower.aoeRadius = newConfig.aoeRadius || 0;
     tower.aoeDamage = newConfig.aoeDamage || 0;
+    if (newConfig.executionerThreshold) {
+      tower.executionerThreshold = newConfig.executionerThreshold;
+    }
+    if (newConfig.executionerMultiplier) {
+      tower.executionerMultiplier = newConfig.executionerMultiplier;
+    }
+    if (newConfig.percentDamagePerSecond) {
+      tower.percentDamagePerSecond = newConfig.percentDamagePerSecond;
+      tower.percentMinDamage = newConfig.minPercentDamage || 0;
+      tower.beamState = { target: null, beamEl: null };
+    }
   }
 
   // 如果是 button 塔，點擊時可觸發微弱 buff（示例）

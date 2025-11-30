@@ -12,6 +12,9 @@ import { MAX_HAND_SIZE } from "./cards.js";
 
 const gameRoot = document.getElementById("game-root");
 const gameField = /** @type {HTMLElement} */ (document.getElementById("game-field"));
+const gameFieldWrapper = /** @type {HTMLElement} */ (
+  document.getElementById("game-field-wrapper")
+);
 const baseEl = /** @type {HTMLElement} */ (document.getElementById("base"));
 
 const uiPanel = document.getElementById("ui-panel"); // 保留用于兼容性，但不再使用
@@ -79,6 +82,7 @@ const btnBackToMenu = /** @type {HTMLButtonElement} */ (
 export const uiElements = {
   gameRoot,
   gameField,
+  gameFieldWrapper,
   baseEl,
   uiPanel,
   handCardsContainer,
@@ -94,6 +98,104 @@ export const uiElements = {
   defeatBestRecord,
   bossStatusBar,
 };
+
+/** 當前戰場縮放資訊 */
+let battlefieldScale = 1;
+let battlefieldLogicalSize = {
+  width: gameField?.offsetWidth || 0,
+  height: gameField?.offsetHeight || 0,
+};
+let battlefieldResizeRaf = null;
+let battlefieldResizeInitialized = false;
+
+/**
+ * 重新計算戰場縮放，確保戰場在視口中完整顯示。
+ */
+function recalcBattlefieldScale() {
+  if (!gameField || !gameFieldWrapper) return;
+
+  const logicalWidth =
+    gameField.offsetWidth ||
+    parseFloat(getComputedStyle(gameField).width || "0") ||
+    1;
+  const logicalHeight =
+    gameField.offsetHeight ||
+    parseFloat(getComputedStyle(gameField).height || "0") ||
+    1;
+
+  battlefieldLogicalSize = { width: logicalWidth, height: logicalHeight };
+
+  const availableWidth = Math.max(gameFieldWrapper.clientWidth || logicalWidth, 1);
+  const availableHeight = Math.max(gameFieldWrapper.clientHeight || logicalHeight, 1);
+
+  const nextScale = Math.min(availableWidth / logicalWidth, availableHeight / logicalHeight, 1);
+  battlefieldScale = Number.isFinite(nextScale) && nextScale > 0 ? nextScale : 1;
+
+  gameField.style.transformOrigin = "50% 50%";
+  gameField.style.transform = `scale(${battlefieldScale})`;
+  gameField.dataset.scale = battlefieldScale.toFixed(4);
+  gameField.style.setProperty("--battlefield-scale", battlefieldScale.toFixed(4));
+}
+
+function scheduleBattlefieldScale() {
+  if (battlefieldResizeRaf !== null) return;
+  battlefieldResizeRaf = requestAnimationFrame(() => {
+    battlefieldResizeRaf = null;
+    recalcBattlefieldScale();
+  });
+}
+
+/**
+ * 初始化戰場縮放邏輯。
+ */
+export function initAdaptiveBattlefield() {
+  if (battlefieldResizeInitialized) {
+    recalcBattlefieldScale();
+    return;
+  }
+  battlefieldResizeInitialized = true;
+  recalcBattlefieldScale();
+  window.addEventListener("resize", scheduleBattlefieldScale);
+}
+
+/**
+ * 在地圖尺寸調整後立即重新計算縮放。
+ */
+export function notifyBattlefieldSizeChanged() {
+  recalcBattlefieldScale();
+}
+
+/**
+ * 取得當前戰場縮放倍率。
+ * @returns {number}
+ */
+export function getBattlefieldScale() {
+  return battlefieldScale || 1;
+}
+
+/**
+ * 獲取當前戰場的邏輯尺寸（未縮放的像素大小）。
+ * @returns {{width:number,height:number}}
+ */
+export function getFieldDimensions() {
+  return { ...battlefieldLogicalSize };
+}
+
+/**
+ * 將螢幕座標轉換為戰場座標（未縮放像素）。
+ * @param {number} clientX
+ * @param {number} clientY
+ * @returns {{x:number,y:number}}
+ */
+export function clientPointToFieldCoords(clientX, clientY) {
+  if (!gameField) return { x: 0, y: 0 };
+  const rect = gameField.getBoundingClientRect();
+  const scale = getBattlefieldScale();
+  return {
+    x: (clientX - rect.left) / scale,
+    y: (clientY - rect.top) / scale,
+  };
+}
 
 /**
  * 綁定控制按鈕的事件。
@@ -520,26 +622,65 @@ export function showWaveToast(text, type = "info") {
 }
 
 /**
+ * 在基地附近顯示懸浮提示。
+ * @param {string} text
+ * @param {number} [duration=2800]
+ */
+export function showBaseAlert(text, duration = 2800) {
+  if (!gameField) return;
+  const alert = document.createElement("div");
+  alert.className = "base-alert";
+  alert.textContent = text;
+  const { x, y } = getBaseLogicalPosition();
+  alert.style.left = `${x}px`;
+  alert.style.top = `${y - 50}px`;
+  gameField.appendChild(alert);
+
+  requestAnimationFrame(() => {
+    alert.classList.add("base-alert--visible");
+  });
+
+  setTimeout(() => {
+    alert.classList.remove("base-alert--visible");
+    setTimeout(() => {
+      if (alert.parentElement) {
+        alert.parentElement.removeChild(alert);
+      }
+    }, 300);
+  }, duration);
+}
+
+/**
  * 更新 BASE 位置（根據關卡配置的相對座標）。
  * @param {{ x: number, y: number }} position 相對座標（0~1），x 為水平位置，y 為從頂部開始的垂直位置
  */
+let baseLogicalPosition = { x: 0, y: 0 };
+
+/**
+ * 取得當前基地在戰場中的邏輯座標。
+ * @returns {{x:number,y:number}}
+ */
+export function getBaseLogicalPosition() {
+  return { ...baseLogicalPosition };
+}
+
 export function updateBasePosition(position) {
   if (!baseEl || !gameField) return;
   
   // 使用 requestAnimationFrame 確保 DOM 已渲染後再計算位置
   requestAnimationFrame(() => {
-    const fieldRect = gameField.getBoundingClientRect();
+    const { width, height } = getFieldDimensions();
     
-    // 計算絕對像素位置
-    const x = position.x * fieldRect.width;
-    const y = position.y * fieldRect.height;
+    // 計算未縮放的像素位置
+    const x = position.x * width;
+    const y = position.y * height;
+    baseLogicalPosition = { x, y };
     
     // BASE 使用 left/top 定位，並用 transform 居中
-    // 使用 !important 確保覆蓋 CSS 中的固定定位
-    baseEl.style.setProperty('left', `${x}px`, 'important');
-    baseEl.style.setProperty('top', `${y}px`, 'important');
-    baseEl.style.setProperty('bottom', 'auto', 'important');
-    baseEl.style.setProperty('transform', 'translate(-50%, -50%)', 'important');
+    baseEl.style.setProperty("left", `${x}px`, "important");
+    baseEl.style.setProperty("top", `${y}px`, "important");
+    baseEl.style.setProperty("bottom", "auto", "important");
+    baseEl.style.setProperty("transform", "translate(-50%, -50%)", "important");
   });
 }
 
@@ -844,7 +985,7 @@ export function showPathPreview(paths) {
   requestAnimationFrame(() => {
     if (!pathPreviewContainer || !gameField) return;
     
-    const fieldRect = gameField.getBoundingClientRect();
+    const fieldRect = getFieldDimensions();
     
     // 为每条路径创建预览线
     paths.forEach((path) => {

@@ -402,13 +402,14 @@ export function checkEnemyCollision(enemy, isWalkable, mapData) {
   } else if (Array.isArray(mapData?.obstacles) && enemy.el) {
     const field = enemy.el.closest("#game-field");
     if (field) {
-      const fieldRect = field.getBoundingClientRect();
+      const fieldWidth = field.offsetWidth || field.clientWidth || 0;
+      const fieldHeight = field.offsetHeight || field.clientHeight || 0;
       const pixel = gridToPixel(grid.row, grid.col);
       blocked = mapData.obstacles.some((obs) => {
-        const obsX = obs.x * fieldRect.width;
-        const obsY = obs.y * fieldRect.height;
-        const obsWidth = obs.width * fieldRect.width;
-        const obsHeight = obs.height * fieldRect.height;
+        const obsX = obs.x * fieldWidth;
+        const obsY = obs.y * fieldHeight;
+        const obsWidth = obs.width * fieldWidth;
+        const obsHeight = obs.height * fieldHeight;
         return (
           pixel.x >= obsX &&
           pixel.x <= obsX + obsWidth &&
@@ -501,9 +502,10 @@ export function updateTowerPlacementPreview(
     const gameField = document.getElementById("game-field");
     if (!gameField) return;
     
-    const fieldRect = gameField.getBoundingClientRect();
-    const mapWidth = Math.floor(fieldRect.width / GRID_CONFIG.TILE_SIZE);
-    const mapHeight = Math.floor(fieldRect.height / GRID_CONFIG.TILE_SIZE);
+    const fieldWidth = gameField.offsetWidth || gameField.clientWidth || 0;
+    const fieldHeight = gameField.offsetHeight || gameField.clientHeight || 0;
+    const mapWidth = Math.floor(fieldWidth / GRID_CONFIG.TILE_SIZE);
+    const mapHeight = Math.floor(fieldHeight / GRID_CONFIG.TILE_SIZE);
     
     // 暂时将该格子视为障碍，计算路径
     const tempIsWalkable = (row, col) => {

@@ -62,6 +62,12 @@ function createBulletElement(gameField, style, x, y) {
     el.style.background = "radial-gradient(circle, #ff00ff, #9900ff)";
     el.style.boxShadow = "0 0 20px #ff00ff, 0 0 10px #9900ff, inset 0 0 10px rgba(255, 0, 255, 0.5)";
     el.style.borderRadius = "50%";
+  } else if (style === "executioner") {
+    el.style.width = "18px";
+    el.style.height = "18px";
+    el.style.borderRadius = "4px";
+    el.style.background = "linear-gradient(135deg, #ff8a80, #ff1744)";
+    el.style.boxShadow = "0 0 16px rgba(255, 23, 68, 0.7)";
   }
   
   el.style.position = "absolute";
@@ -254,6 +260,18 @@ export function playBulletHitEffect(gameField, bullet, x, y) {
         hitEffect.parentElement.removeChild(hitEffect);
       }
     }, 500);
+  } else if (bullet.style === "executioner") {
+    const slash = document.createElement("div");
+    slash.className = "executioner-slash";
+    slash.textContent = "EXECUTE";
+    slash.style.left = `${x}px`;
+    slash.style.top = `${y - 10}px`;
+    gameField.appendChild(slash);
+    setTimeout(() => {
+      if (slash.parentElement) {
+        slash.parentElement.removeChild(slash);
+      }
+    }, 400);
   }
   
   // 移除子弹元素
