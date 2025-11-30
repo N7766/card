@@ -470,6 +470,23 @@ function createBossSummonEffect(gameField, x, y) {
   setTimeout(() => ring.remove(), 600);
 }
 
+function createTowerDestructionFx(gameField, x, y) {
+  if (!gameField) return;
+  const shockwave = document.createElement("div");
+  shockwave.className = "boss-tower-shockwave";
+  shockwave.style.left = `${x}px`;
+  shockwave.style.top = `${y}px`;
+  gameField.appendChild(shockwave);
+  setTimeout(() => shockwave.remove(), 600);
+
+  const sparks = document.createElement("div");
+  sparks.className = "boss-tower-sparks";
+  sparks.style.left = `${x}px`;
+  sparks.style.top = `${y}px`;
+  gameField.appendChild(sparks);
+  setTimeout(() => sparks.remove(), 500);
+}
+
 function isTileOccupiedByEnemy(enemies, row, col) {
   return enemies.some((enemy) => enemy.alive && enemy.row === row && enemy.col === col);
 }
@@ -581,6 +598,7 @@ function scheduleTowerDestruction(tower, context, behavior) {
       tower.pendingBossDestroy = false;
       return;
     }
+    createTowerDestructionFx(context.gameField, tower.x, tower.y);
     tower.alive = false;
     tower.el.classList.add("tower-destroyed");
     tower.el.style.opacity = "0";
@@ -765,6 +783,12 @@ export function spawnEnemy(
     el.textContent = "BOSS";
   }
   el.dataset.enemyId = id;
+  if (Number.isFinite(visualSpec?.width)) {
+    el.style.width = `${visualSpec.width}px`;
+  }
+  if (Number.isFinite(visualSpec?.height)) {
+    el.style.height = `${visualSpec.height}px`;
+  }
   if (Number.isFinite(visualSpec?.highlightRadius)) {
     el.style.setProperty("--enemy-highlight-radius", `${visualSpec.highlightRadius}px`);
   } else {

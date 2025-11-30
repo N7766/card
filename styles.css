@@ -1,7 +1,7 @@
 :root {
-  --top-bar-height: 92px;
-  --hud-padding-x: clamp(16px, 3vw, 48px);
-  --stage-padding: clamp(16px, 3vw, 40px);
+  --top-bar-height: 56px;
+  --hud-padding-x: clamp(12px, 2.4vw, 32px);
+  --stage-padding: clamp(12px, 2.2vh, 24px);
   --sidebar-width: clamp(210px, 18vw, 260px);
   --sidebar-collapsed-width: 58px;
   --tile-size: 40px;
@@ -33,13 +33,14 @@ body {
 }
 
 body {
-  overflow: auto;
   min-height: 100vh;
+  overflow: hidden;
 }
 
 #game-root {
   width: 100vw;
   height: 100vh;
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -47,6 +48,7 @@ body {
   position: relative;
   color: #f5f5f5;
   padding-top: var(--top-bar-height);
+  overflow: hidden;
 }
 
 #game-layout {
@@ -64,10 +66,10 @@ body {
   right: 0;
   height: var(--top-bar-height);
   display: grid;
-  grid-template-columns: 1fr minmax(320px, 1.4fr) 1fr;
-  align-items: stretch;
-  gap: clamp(8px, 2vw, 20px);
-  padding: 10px var(--hud-padding-x);
+  grid-template-columns: 1fr minmax(280px, 1.4fr) 1fr;
+  align-items: center;
+  gap: clamp(6px, 1.5vw, 16px);
+  padding: 6px var(--hud-padding-x);
   background: linear-gradient(135deg, rgba(11, 16, 32, 0.95), rgba(5, 10, 20, 0.98));
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -79,6 +81,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
 }
 
 .top-hud-section--hp {
@@ -87,14 +90,14 @@ body {
 
 .top-hud-section--energy {
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   align-items: flex-end;
 }
 
 .top-stat-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex: 1;
   max-width: 400px;
 }
@@ -103,7 +106,7 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 4px 0 0 0;
+  padding: 2px 0 0 0;
   flex: none;
   justify-content: flex-end;
   opacity: 1;
@@ -120,7 +123,7 @@ body {
 }
 
 .boss-status__name {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 1px;
   color: #ffeb3b;
@@ -131,8 +134,8 @@ body {
 
 .boss-status__bar {
   flex: 1;
-  min-width: 240px;
-  height: 20px;
+  min-width: 180px;
+  height: 16px;
   border-radius: 999px;
   border: 1px solid rgba(255, 193, 7, 0.4);
   background: rgba(0, 0, 0, 0.4);
@@ -152,7 +155,7 @@ body {
 }
 
 .boss-status__hp {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.92);
   min-width: 96px;
@@ -182,8 +185,8 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  font-size: 13px;
+  gap: 4px;
+  font-size: 12px;
   opacity: 0.85;
 }
 
@@ -197,7 +200,7 @@ body {
 }
 
 .top-stat-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.9);
   white-space: nowrap;
@@ -205,10 +208,10 @@ body {
 
 .top-bar-container {
   flex: 1;
-  height: 24px;
+  height: 18px;
   min-width: 180px;
   max-width: 280px;
-  border-radius: 12px;
+  border-radius: 10px;
   overflow: hidden;
   background: rgba(0, 0, 0, 0.4);
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
@@ -233,7 +236,7 @@ body {
 }
 
 .top-stat-value {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: #fff;
   min-width: 80px;
@@ -252,8 +255,11 @@ body {
   align-items: stretch;
   justify-content: center;
   gap: clamp(14px, 2.5vw, 32px);
-  padding: var(--stage-padding);
+  padding: var(--stage-padding) clamp(16px, 2.8vw, 32px);
   min-height: 0;
+  height: calc(100vh - var(--top-bar-height));
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 #game-field-wrapper {
@@ -262,6 +268,8 @@ body {
   align-items: center;
   justify-content: center;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
   overflow: auto;
 }
 
@@ -281,6 +289,7 @@ body {
 .card-sidebar {
   width: var(--sidebar-width);
   max-width: 360px;
+  max-height: 100%;
   background: linear-gradient(135deg, rgba(18, 27, 60, 0.95), rgba(9, 12, 30, 0.98));
   border-left: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: -6px 0 18px rgba(0, 0, 0, 0.55);
@@ -291,6 +300,7 @@ body {
   gap: 10px;
   transition: width 0.25s ease, transform 0.25s ease;
   min-height: 0;
+  overflow: hidden;
 }
 
 .card-sidebar__header {
@@ -382,6 +392,36 @@ body {
     inset 0 0 60px rgba(100, 0, 150, 0.1);
 }
 
+.map-theme-oasis {
+  background-image: radial-gradient(circle at 30% 30%, #2e3a24, #1b2618 65%, #0f1510 100%);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04), 0 18px 40px rgba(0, 0, 0, 0.7);
+}
+
+.map-theme-labyrinth {
+  background-image: linear-gradient(135deg, #10182c, #080c16),
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.03) 0,
+      rgba(255, 255, 255, 0.03) 1px,
+      transparent 1px,
+      transparent 20px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.03) 0,
+      rgba(255, 255, 255, 0.03) 1px,
+      transparent 1px,
+      transparent 20px
+    );
+}
+
+.map-theme-neon {
+  background-image: radial-gradient(circle at 50% 20%, #1f1440, #0c0b1c 70%, #06040d 100%);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 20px 50px rgba(9, 3, 23, 0.85),
+    inset 0 0 80px rgba(98, 0, 234, 0.15);
+}
+
 /* 细网格背景 */
 #game-field::before {
   content: "";
@@ -406,16 +446,17 @@ body {
   left: 50%;
   bottom: 10%;
   transform: translateX(-50%);
-  width: 90px;
-  height: 90px;
-  border-radius: 18px;
-  background: radial-gradient(circle at 30% 30%, #fffd, #ff9800);
-  box-shadow: 0 0 25px rgba(255, 193, 7, 0.85), 0 0 0 3px rgba(0, 0, 0, 0.6);
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  background: radial-gradient(circle at 35% 35%, #fff6, #ff9800);
+  box-shadow: 0 0 18px rgba(255, 193, 7, 0.65), 0 0 0 2px rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 800;
-  letter-spacing: 2px;
+  letter-spacing: 1px;
+  font-size: 13px;
   color: #1a1200;
   text-shadow: 0 1px 2px rgba(255, 255, 255, 0.4);
   z-index: 10;
@@ -1546,6 +1587,54 @@ body {
   }
 }
 
+.boss-tower-shockwave {
+  position: absolute;
+  width: 60px;
+  height: 60px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 111, 0, 0.65);
+  transform: translate(-50%, -50%) scale(0.4);
+  opacity: 0.8;
+  pointer-events: none;
+  animation: boss-shockwave-expand 0.5s ease-out forwards;
+  z-index: 6;
+}
+
+.boss-tower-sparks {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(255, 214, 0, 0.85), transparent 65%);
+  transform: translate(-50%, -50%) scale(0.5);
+  pointer-events: none;
+  animation: boss-sparks-fade 0.45s ease-out forwards;
+  z-index: 8;
+  filter: blur(0.5px);
+}
+
+@keyframes boss-shockwave-expand {
+  0% {
+    transform: translate(-50%, -50%) scale(0.4);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1.8);
+    opacity: 0;
+  }
+}
+
+@keyframes boss-sparks-fade {
+  0% {
+    transform: translate(-50%, -50%) scale(0.5) rotate(0deg);
+    opacity: 0.95;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1.6) rotate(45deg);
+    opacity: 0;
+  }
+}
+
 .tower-destroyed {
   animation: tower-collapse 0.4s ease-out forwards;
 }
@@ -1986,7 +2075,7 @@ body {
 /* 响应式：窄屏时调整布局 */
 @media (max-width: 1024px) {
   :root {
-    --top-bar-height: 86px;
+    --top-bar-height: 64px;
     --sidebar-width: clamp(220px, 36vw, 300px);
   }
 

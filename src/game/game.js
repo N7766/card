@@ -148,7 +148,9 @@ let state = null;
 /** @type {number | null} */
 let animationFrameId = null;
 
-const MIN_WAVES_PER_LEVEL = 5;
+let lastBossTowerToast = 0;
+
+const MIN_WAVES_PER_LEVEL = 7;
 const DEFAULT_GROUP_INTERVAL_MS = 900;
 const MIN_GROUP_INTERVAL_MS = 250;
 const DEFAULT_WAVE_DELAY_MS = 3500;
@@ -561,13 +563,15 @@ export function startGame(levelIndex = 0) {
   // 显示关卡开始气泡
   const prepTime = level.setupTimeSeconds || 10; // 从关卡配置获取布置时间
   // 根据关卡生成描述
-  let description = "准备防御，敌人即将来袭！";
-  if (levelIndex === 0) {
-    description = "敌人从顶部两侧进攻，尝试用 DIV 塔守住正面。";
-  } else if (levelIndex === 1) {
-    description = "敌人从四个方向进攻，BASE 位于中央，需要全方位防御。";
-  } else if (levelIndex === 2) {
-    description = "终极挑战！敌人从多个方向同时进攻，合理使用布局卡和样式卡。";
+  let description = level.description || "准备防御，敌人即将来袭！";
+  if (!level.description) {
+    if (levelIndex === 0) {
+      description = "敌人从顶部两侧进攻，尝试用 DIV 塔守住正面。";
+    } else if (levelIndex === 1) {
+      description = "敌人从四个方向进攻，BASE 位于中央，需要全方位防御。";
+    } else if (levelIndex === 2) {
+      description = "终极挑战！敌人从多个方向同时进攻，合理使用布局卡和样式卡。";
+    }
   }
   
   // 构建关卡信息对象
@@ -812,6 +816,18 @@ function buildMapState(level) {
     }
   }
 
+  const baseClearRadiusTiles = Math.max(1, Math.round(level.baseClearRadiusTiles ?? 2));
+  if (safeBaseGrid && baseClearRadiusTiles > 0) {
+    const { filtered, removed } = removeObstaclesAroundBase(gridObstacles, safeBaseGrid, baseClearRadiusTiles);
+    if (removed > 0) {
+      gridObstacles = filtered;
+      blockedGrid = buildBlockedGrid(mapWidth, mapHeight, gridObstacles);
+      console.log(
+        `[map] 清除了 ${removed} 個靠近基地的障礙 (半徑=${baseClearRadiusTiles})，避免視覺重疊。`
+      );
+    }
+  }
+
   const previewPaths = computePreviewPaths(spawnGrids, safeBaseGrid, blockedGrid, mapWidth, mapHeight);
 
   return {
@@ -900,6 +916,22 @@ function buildBlockedGrid(mapWidth, mapHeight, obstacles) {
     }
   }
   return blocked;
+}
+
+function removeObstaclesAroundBase(obstacles, baseGrid, radiusTiles) {
+  if (!baseGrid || radiusTiles <= 0) {
+    return { filtered: obstacles, removed: 0 };
+  }
+  const filtered = [];
+  let removed = 0;
+  for (const obs of obstacles) {
+    if (intersectsCircle(obs, baseGrid, radiusTiles)) {
+      removed++;
+    } else {
+      filtered.push(obs);
+    }
+  }
+  return { filtered, removed };
 }
 
 function generateStructuredRandomObstacles(level, context) {
@@ -1298,6 +1330,11 @@ function updateGameState(delta, now) {
       },
       onTowerDestroyed: () => {
         requestFullPathRecalc();
+        const now = performance.now();
+        if (!lastBossTowerToast || now - lastBossTowerToast > 1500) {
+          showWaveToast("Boss 摧毁了一座防御塔！", "info");
+          lastBossTowerToast = now;
+        }
       },
     }
   );
