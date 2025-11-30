@@ -1,31 +1,53 @@
 @echo off
-rem 作用：双击后自动启动本地服务器并打开游戏页面
-setlocal enabledelayedexpansion
+rem Simple start script for the card game
+
+rem Go to the folder of this script (project root)
 cd /d "%~dp0"
 
+rem Try to find a Python executable: py, python, python3
 set "PYTHON_BIN="
-for %%P in (py python3 python) do (
-  where %%P >nul 2>nul && (
-    set "PYTHON_BIN=%%P"
-    goto :FOUND
-  )
+
+where py >nul 2>nul
+if not errorlevel 1 (
+    set "PYTHON_BIN=py"
 )
 
-:NO_PYTHON
-echo 未找到 Python，请先安装 https://www.python.org/downloads/windows/ 然后重新双击本文件。
-pause
-exit /b 1
+if "%PYTHON_BIN%"=="" (
+    where python >nul 2>nul
+    if not errorlevel 1 (
+        set "PYTHON_BIN=python"
+    )
+)
 
-:FOUND
-for /f "delims=" %%V in ('"%PYTHON_BIN%" --version 2^>^&1') do set "PY_VER=%%V"
-echo 检测到 Python: !PY_VER!
-echo 正在启动本地服务器，若防火墙提示请选择允许。
+if "%PYTHON_BIN%"=="" (
+    where python3 >nul 2>nul
+    if not errorlevel 1 (
+        set "PYTHON_BIN=python3"
+    )
+)
+
+if "%PYTHON_BIN%"=="" (
+    echo Python is not installed or not in PATH.
+    echo Please install it from https://www.python.org/ and then run this file again.
+    pause
+    exit /b 1
+)
+
+echo Using %PYTHON_BIN% to start local server...
+
+set "PORT=8000"
+
+rem Start http.server in background
+start "" "%PYTHON_BIN%" -m http.server %PORT%
+
+rem Wait a bit for the server to start
+ping 127.0.0.1 -n 2 >nul
+
+rem Open default browser to the game
+start "" "http://localhost:%PORT%/index.html"
+
 echo.
-
-"%PYTHON_BIN%" "scripts\local_server.py"
-
-echo.
-echo 服务器已停止，可以关闭本窗口。
+echo Game URL: http://localhost:%PORT%/index.html
+echo If the page does not open, copy this URL into your browser.
 pause
 exit /b 0
-
